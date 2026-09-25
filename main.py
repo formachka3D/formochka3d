@@ -172,6 +172,10 @@ cv2.imwrite(
     vector_preview
 )
 
+# Shared exact contour for stamp: no second silhouette detection.
+np.save(f"output/{os.path.splitext(os.path.basename(input_file))[0]}_outline.npy", vector_points)
+
+
 
 print(
     "Контур сохранён: "
