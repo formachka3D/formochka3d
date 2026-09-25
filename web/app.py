@@ -891,6 +891,8 @@ PAGE = """
                 "none";
 
             document.getElementById("imageConfirmContour").style.display = "none";
+            document.getElementById("imageOutputChoice").style.display = "none";
+            document.getElementById("imageStampNotice").style.display = "none";
             document.getElementById("imageSettings").style.display = "none";
             document.getElementById("imageModelStage").style.display = "none";
             window.dispatchEvent(new Event("formochka:clear"));
