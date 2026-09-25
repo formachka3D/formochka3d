@@ -88,14 +88,11 @@ def generate(path,size=100,out=None):
         cv2.polylines(overlay,[to_full(pts)],True,(225,93,20),2,cv2.LINE_AA)
     for pts in smooth(dark_marks):
         cv2.fillPoly(overlay,[to_full(pts)],(225,93,20),cv2.LINE_AA)
-    cv2.polylines(overlay,[np.rint(base_poly.exterior.coords).astype(np.int32)],True,(225,93,20),2,cv2.LINE_AA)
     cv2.polylines(overlay,[np.rint(vector).astype(np.int32)],True,(0,145,255),2,cv2.LINE_AA)
     cv2.imwrite(out+"_preview.png",overlay)
     paths=[]
     for pts in smooth(clean):
         paths.append("M "+" L ".join(f"{px*pitch:.2f},{py*pitch:.2f}" for px,py in pts)+" Z")
-    base_pts=coords(base_poly.exterior.coords)
-    paths.append("M "+" L ".join(f"{px*pitch:.2f},{py*pitch:.2f}" for px,py in base_pts)+" Z")
     svg=f'<svg xmlns="http://www.w3.org/2000/svg" width="{width*pitch:.2f}mm" height="{height*pitch:.2f}mm" viewBox="0 0 {width*pitch:.2f} {height*pitch:.2f}">'+''.join(f'<path d="{d}" fill="none" stroke="#1766cf" stroke-width=".5"/>' for d in paths)+'</svg>'
     with open(out+".svg","w") as file:file.write(svg)
     # The cutter cuts the perimeter; the stamp embosses only interior details.
