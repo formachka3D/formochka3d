@@ -939,7 +939,7 @@ PAGE = """
     const textFont=document.getElementById("textFont");
     const textGlyphPreview=document.getElementById("textGlyphPreview");
     let chosenSymbol="А";
-    const symbols=Array.from("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ0123456789");
+    const symbols=Array.from("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
     function updateGlyph(){
         textGlyphPreview.textContent=chosenSymbol;
         textGlyphPreview.style.fontFamily='"'+textFont.value+'",sans-serif';
