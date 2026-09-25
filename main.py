@@ -74,19 +74,10 @@ with open(input_file, "rb") as f:
 result_bytes = remove(input_bytes)
 
 
-temp_path = "input/_temp_no_bg.png"
-
-
-with open(temp_path, "wb") as f:
-    f.write(result_bytes)
-
-
-# =========================================================
-# СОЗДАЁМ МАСКУ
-# =========================================================
-
-img = cv2.imread(
-    temp_path,
+# Decode the per-request background-removal result in memory.
+# A shared temporary file would mix images from concurrent users.
+img = cv2.imdecode(
+    np.frombuffer(result_bytes, dtype=np.uint8),
     cv2.IMREAD_UNCHANGED
 )
 
