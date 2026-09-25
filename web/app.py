@@ -1024,6 +1024,7 @@ PAGE = """
 
             label.textContent =
                 "Загрузить изображение";
+            label.scrollIntoView({behavior: "smooth", block: "center"});
         }
     );
 
