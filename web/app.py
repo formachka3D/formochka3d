@@ -842,6 +842,7 @@ PAGE = """
                 document.getElementById("imageConfirmContour").style.display = "block";
                 document.getElementById("imageSettings").style.display = "none";
                 document.getElementById("imageModelStage").style.display = "none";
+                window.dispatchEvent(new Event("formochka:clear"));
                 document.getElementById("imageCreateButton").style.display = "none";
 
                 document.getElementById(
