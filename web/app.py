@@ -831,8 +831,7 @@ PAGE = """
                 document.getElementById(
                     "imagePreview"
                 ).src =
-                    "/preview-image?t=" +
-                    Date.now();
+                    "/preview-image?file=" + encodeURIComponent(currentImageFile) + "&t=" + Date.now();
 
                 document.getElementById(
                     "imagePreviewBox"
@@ -1007,8 +1006,7 @@ PAGE = """
                 document.getElementById(
                     "textPreview"
                 ).src =
-                    "/preview-text?t=" +
-                    Date.now();
+                    "/preview-text?file=" + encodeURIComponent(currentTextFile) + "&t=" + Date.now();
 
                 document.getElementById(
                     "textPreviewBox"
@@ -1493,9 +1491,16 @@ async def create_text(
     )
 
 
+def _valid_upload_name(value: str) -> bool:
+    stem, ext = os.path.splitext(value)
+    return len(stem) == 32 and all(ch in "0123456789abcdef" for ch in stem) and ext.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+
+
 @app.get("/preview-image")
-def preview_image():
-    path = "output/vector_outline.png"
+def preview_image(file: str):
+    if not _valid_upload_name(file):
+        return JSONResponse({"error": "Неверный файл"}, status_code=400)
+    path = os.path.join("output", os.path.splitext(file)[0] + "_outline.png")
 
     if not os.path.exists(path):
         return JSONResponse(
@@ -1510,8 +1515,10 @@ def preview_image():
 
 
 @app.get("/preview-text")
-def preview_text():
-    path = "output/text_outline.png"
+def preview_text(file: str):
+    if not _valid_upload_name(file):
+        return JSONResponse({"error": "Неверный файл"}, status_code=400)
+    path = os.path.join("output", os.path.splitext(file)[0] + "_outline.png")
 
     if not os.path.exists(path):
         return JSONResponse(
