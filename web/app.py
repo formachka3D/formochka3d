@@ -469,6 +469,8 @@ PAGE = """
                 >
             </div>
 
+            <button class="create-button" id="imageConfirmContour" type="button" style="display:none">Подтвердить контур</button>
+
             <div
                 class="settings-box"
                 id="imageSettings"
@@ -836,15 +838,9 @@ PAGE = """
                 ).style.display =
                     "block";
 
-                document.getElementById(
-                    "imageSettings"
-                ).style.display =
-                    "block";
-
-                document.getElementById(
-                    "imageCreateButton"
-                ).style.display =
-                    "block";
+                document.getElementById("imageConfirmContour").style.display = "block";
+                document.getElementById("imageSettings").style.display = "none";
+                document.getElementById("imageCreateButton").style.display = "none";
 
                 document.getElementById(
                     "imageAnotherButton"
@@ -994,10 +990,8 @@ PAGE = """
             ).style.display =
                 "none";
 
-            document.getElementById(
-                "imageSettings"
-            ).style.display =
-                "none";
+            document.getElementById("imageConfirmContour").style.display = "none";
+            document.getElementById("imageSettings").style.display = "none";
 
             document.getElementById(
                 "imageCreateButton"
@@ -1028,6 +1022,12 @@ PAGE = """
         }
     );
 
+
+    document.getElementById("imageConfirmContour").addEventListener("click", function () {
+        this.style.display = "none";
+        document.getElementById("imageSettings").style.display = "block";
+        document.getElementById("imageCreateButton").style.display = "block";
+    });
 
     const textFile =
         document.getElementById(
