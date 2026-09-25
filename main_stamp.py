@@ -36,25 +36,45 @@ def generate(path, size=100, out=None):
     if bgr.shape[:2]!=fg.shape:
         bgr=cv2.resize(bgr,(fg.shape[1],fg.shape[0]))
     roi=cv2.resize(bgr[y:y+h,x:x+w],target,interpolation=cv2.INTER_AREA)
+    # Segment coherent material colors, not local shadows or image texture.
     lab=cv2.cvtColor(roi,cv2.COLOR_BGR2LAB)
     light=lab[:,:,0]
-    valid=light[obj>0]
+    a_chan=lab[:,:,1].astype(np.int16)
+    b_chan=lab[:,:,2].astype(np.int16)
+    # Strongly dark, solid connected marks (eyes, nose, mouth, printed lines).
+    # A maximum physical area rejects the broad shadow along a cookie rim.
+    smoothed=cv2.GaussianBlur(light,(0,0),1.4)
+    valid=smoothed[obj>0]
     if len(valid)<100: raise ValueError("Too little foreground")
-    # Dark meaningful marks: local contrast, excluding outer cookie edge.
-    blur=cv2.GaussianBlur(light,(0,0),max(3,5/pitch))
-    dark=np.maximum(0,blur.astype(np.int16)-light.astype(np.int16))
-    dark_threshold=max(14,int(np.percentile(dark[obj>0],86)))
-    interior=cv2.erode(obj,np.ones((13,13),np.uint8))
-    marks=((dark>=dark_threshold)&(interior>0)).astype(np.uint8)
-    marks=cv2.morphologyEx(marks,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
-    count,labels,stats,_=cv2.connectedComponentsWithStats(marks,8)
-    clean=np.zeros_like(marks)
+    dark_cutoff=min(112,max(65,float(np.percentile(valid,15))))
+    dark=((smoothed<dark_cutoff)&(obj>0)).astype(np.uint8)
+    dark=cv2.morphologyEx(dark,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
+    count,labels,stats,_=cv2.connectedComponentsWithStats(dark,8)
+    marks=np.zeros_like(dark)
     for i in range(1,count):
-        if stats[i,cv2.CC_STAT_AREA]*pitch*pitch>=1.2:
-            clean[labels==i]=1
-    # Smooth binary edges at actual physical scale, not by PNG retracing.
-    clean=(gaussian_filter(clean.astype(float),sigma=.55)>.45).astype(np.uint8)
-    # Remove thin outer perimeter from the stamp base.
+        x0,y0,cw,ch,area=stats[i]
+        physical_area=area*pitch*pitch
+        if 2.5<=physical_area<=90 and cw*ch>0:
+            marks[labels==i]=1
+    # Light icing or painted islands are represented by their fine boundaries,
+    # not filled solid or duplicated thick dark shadow bands.
+    neutral=(np.abs(a_chan-128)<12)&(np.abs(b_chan-128)<18)
+    bright_cutoff=max(210,float(np.percentile(light[obj>0],80)))
+    light_regions=((light>bright_cutoff)&neutral&(obj>0)).astype(np.uint8)
+    light_regions=cv2.morphologyEx(light_regions,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
+    count,labels,stats,_=cv2.connectedComponentsWithStats(light_regions,8)
+    strokes=np.zeros_like(light_regions)
+    for i in range(1,count):
+        x0,y0,cw,ch,area=stats[i]
+        physical_area=area*pitch*pitch
+        solidity=area/max(1,cw*ch)
+        if 10<=physical_area<=300 and solidity>.25:
+            region=(labels==i).astype(np.uint8)
+            contours,_=cv2.findContours(region,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(strokes,contours,-1,1,max(1,round(1.2/pitch)))
+    # Keep the same clean binary geometry for the SVG, preview and STL.
+    clean=np.maximum(marks,strokes)
+    clean=(gaussian_filter(clean.astype(float),sigma=.65)>.40).astype(np.uint8)
     inset_px=max(2,round(2/pitch))
     base=cv2.erode(obj,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(2*inset_px+1,)*2))
     if base.sum()<100: raise ValueError("Base disappeared")
