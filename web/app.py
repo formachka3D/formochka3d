@@ -484,7 +484,7 @@ PAGE = """
                 <p style="font-size:14px;color:#77675f">Экспериментальный режим: проверьте внутренние линии перед печатью.</p>
             </div>
             <button class="create-button" id="imageConfirmContour" type="button" style="display:none">Подтвердить контур</button>
-            <section id="imageModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем.</p><div id="imageModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div><p>Настройте размер и высоту под моделью.</p>            <div
+            <section id="imageModelStage" style="display:none; margin-top:22px; text-align:center"><h3 id="imageModelTitle">Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем.</p><div id="imageModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div><p>Настройте размер и высоту под моделью.</p>            <div
                 class="settings-box"
                 id="imageSettings"
             >
@@ -514,7 +514,7 @@ PAGE = """
                     </div>
                 </div>
 
-                <div class="setting">
+                <div class="setting" id="imageHeightSetting">
                     <div class="setting-title">
                         <span>Высота режущей части</span>
                         <span
@@ -541,7 +541,7 @@ PAGE = """
                 </div>
             </div>
 
-<p id="imageModelMessage" role="status">Подготавливаем модель...</p><button type="button" id="imageModelToggle" style="display:none;padding:12px;border-radius:12px;width:100%;margin-bottom:12px">Показать формочку</button><button type="button" disabled style="padding:16px; width:100%; border-radius:14px; opacity:.65">Заказать готовую формочку — скоро</button></section>
+<p id="imageModelMessage" role="status">Подготавливаем модель...</p><button type="button" id="imageModelToggle" style="display:none;padding:12px;border-radius:12px;width:100%;margin-bottom:12px">Показать формочку</button><button type="button" id="imageOrderSoon" disabled style="padding:16px; width:100%; border-radius:14px; opacity:.65">Заказать готовую формочку — скоро</button></section>
             <button type="button" class="create-button" id="stampDownload" style="display:none">Скачать STL оттиска</button><p id="stampDownloadStatus" role="status"></p>
             <button
                 class="create-button"
@@ -961,6 +961,10 @@ PAGE = """
         document.getElementById("imageStampPreviewBox").style.display="none";
         document.getElementById("imageSettings").style.display="block";
         document.getElementById("imageModelStage").style.display="block";
+        const combined=document.querySelector('input[name="imageOutputMode"]:checked').value==="stamp";
+        document.getElementById("imageModelTitle").textContent=combined?"Формочка и оттиск в 3D":"Ваша формочка в 3D";
+        document.getElementById("imageHeightSetting").style.display=combined?"none":"block";
+        document.getElementById("imageOrderSoon").style.display=combined?"none":"block";
         document.getElementById("imageCreateButton").style.display="block";
         if(document.querySelector('input[name="imageOutputMode"]:checked').value==="stamp"){
             document.getElementById("imageStampNotice").style.display="none";
