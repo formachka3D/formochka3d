@@ -469,6 +469,14 @@ PAGE = """
             </div>
 
             <button class="create-button" id="imageConfirmContour" type="button" style="display:none">Подтвердить контур</button>
+            <div id="imageOutputChoice" style="display:none;margin:22px 0;padding:22px;border:2px solid #e4d4ca;border-radius:20px;background:#fffaf6">
+                <h3 style="margin:0 0 8px">Что будем создавать?</h3>
+                <p style="color:#77675f;margin:0 0 18px">Выберите один из двух вариантов.</p>
+                <label style="display:block;padding:16px;border:1px solid #e4d4ca;border-radius:12px;margin-bottom:10px;cursor:pointer"><input type="radio" name="imageOutputMode" value="cutter" checked> <b>Просто формочка</b><br><span style="font-size:14px;color:#77675f">Резак по внешнему контуру рисунка.</span></label>
+                <label style="display:block;padding:16px;border:1px solid #e4d4ca;border-radius:12px;margin-bottom:18px;cursor:pointer"><input type="radio" name="imageOutputMode" value="stamp"> <b>Формочка + оттиск</b><br><span style="font-size:14px;color:#77675f">Резак и отдельный штамп с деталями изображения.</span></label>
+                <button class="main-button" type="button" id="imageOutputContinue">Продолжить</button>
+                <p id="imageStampNotice" style="display:none;color:#77675f;font-size:14px;margin:14px 0 0">Для оттиска потребуется отдельное подтверждение внутренних линий. Генерация оттиска ещё разрабатывается.</p>
+            </div>
 
             <section id="imageModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем.</p><div id="imageModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div><p>Настройте размер и высоту под моделью.</p>            <div
                 class="settings-box"
@@ -920,6 +928,15 @@ PAGE = """
     document.getElementById("imageConfirmContour").addEventListener("click", function () {
         this.style.display = "none";
         document.getElementById("imagePreviewBox").style.display = "none";
+        document.getElementById("imageOutputChoice").style.display = "block";
+        document.getElementById("imageOutputChoice").scrollIntoView({behavior:"smooth",block:"center"});
+    });
+    document.getElementById("imageOutputContinue").addEventListener("click", function () {
+        if (document.querySelector('input[name="imageOutputMode"]:checked').value === "stamp") {
+            document.getElementById("imageStampNotice").style.display = "block";
+            return;
+        }
+        document.getElementById("imageOutputChoice").style.display = "none";
         document.getElementById("imageSettings").style.display = "block";
         document.getElementById("imageModelStage").style.display = "block";
         document.getElementById("imageCreateButton").style.display = "block";
