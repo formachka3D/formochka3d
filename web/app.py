@@ -963,11 +963,11 @@ PAGE = """
         document.getElementById("imageModelStage").style.display="block";
         document.getElementById("imageCreateButton").style.display="block";
         if(document.querySelector('input[name="imageOutputMode"]:checked').value==="stamp"){
-            document.getElementById("imageStampNotice").style.display="block";
-            document.getElementById("imageOutputChoice").style.display="block";
+            document.getElementById("imageStampNotice").style.display="none";
+            document.getElementById("imageOutputChoice").style.display="none";
             document.getElementById("imageOutputContinue").style.display="none";
         }
-        document.getElementById("stampDownload").style.display=document.querySelector('input[name="imageOutputMode"]:checked').value==="stamp"?"block":"none";
+        document.getElementById("stampDownload").style.display="none";
         window.dispatchEvent(new Event("formochka:build"));
     });
     for (const slider of [imageSize,imageHeight]) slider.addEventListener("input",()=>{
@@ -1212,7 +1212,7 @@ const holder=document.getElementById("imageModelViewer"),message=document.getEle
 let version=0,timer,controller,view;
 window.formochkaSTL=null;window.formochkaStampSTL=null;
 const toggle=document.getElementById("imageModelToggle");
-function clear(){if(view){view.stop();view.controls.dispose();view.geometry.dispose();view.material.dispose();view.renderer.dispose();view.renderer.domElement.remove();view=null;}}
+function clear(){if(view){view.stop();view.controls.dispose();view.geometry.dispose();if(view.stampGeometry)view.stampGeometry.dispose();if(view.stampMaterial)view.stampMaterial.dispose();view.material.dispose();view.renderer.dispose();view.renderer.domElement.remove();view=null;}}
 window.addEventListener("formochka:clear",()=>{version++;clearTimeout(timer);controller?.abort();clear();window.formochkaSTL=null;window.formochkaStampSTL=null;toggle.style.display="none";button.disabled=true;});
 window.addEventListener("formochka:build",()=>{version++;clearTimeout(timer);controller?.abort();window.formochkaSTL=null;window.formochkaStampSTL=null;toggle.style.display="none";button.disabled=true;message.textContent="Создаём 3D-модель...";const v=version;timer=setTimeout(()=>build(v),450);});
 async function build(v){
@@ -1245,13 +1245,12 @@ async function build(v){
    const sg=new STLLoader().parse(await sb.arrayBuffer());if(v!==version){sg.dispose();return;}
    sg.computeVertexNormals();sg.computeBoundingBox();sg.center();
    window.formochkaStampSTL=sb;
-   const cg=geometry;let showStamp=true;mesh.geometry=sg;view.geometry=sg;
-   const ss=sg.boundingBox.getSize(new THREE.Vector3()).length();
-   camera.position.set(ss*.8,ss*.85,ss*.9);controls.target.set(0,0,0);controls.update();
-   toggle.style.display="block";toggle.textContent="Показать формочку";
-   toggle.onclick=()=>{showStamp=!showStamp;mesh.geometry=showStamp?sg:cg;view.geometry=mesh.geometry;toggle.textContent=showStamp?"Показать формочку":"Показать оттиск";message.textContent=showStamp?"3D-оттиск: рельеф и бортик":"3D-формочка: режущая стенка";};
-   const stop=view.stop;view.stop=()=>{stop();cg.dispose();sg.dispose();};
-   message.textContent="3D-оттиск готов. Переключайте модели кнопкой.";
+   const stampMaterial=new THREE.MeshStandardMaterial({color:0xe6b99e,side:THREE.DoubleSide,roughness:.72});
+   const stampMesh=new THREE.Mesh(sg,stampMaterial);stampMesh.rotation.x=-Math.PI/2;
+   scene.add(stampMesh);view.stampGeometry=sg;view.stampMaterial=stampMaterial;
+   toggle.style.display="none";
+   document.getElementById("stampDownload").style.display="block";
+   message.textContent="Формочка и оттиск готовы.";
  }
  }catch(e){if(v===version&&e.name!=="AbortError")message.textContent=e.message;}
 }
