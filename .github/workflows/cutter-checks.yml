@@ -160,10 +160,15 @@ jobs:
               page.locator("#imageConfirmContour").click()
               page.locator("#imageModelViewer canvas").wait_for(state="visible",timeout=45000)
               page.wait_for_function("window.formochkaSTL && document.querySelector('#imageCreateButton').disabled === false",timeout=45000)
+              # Changing height must invalidate the previous download and rebuild.
+              page.locator("#imageHeight").fill("20")
+              page.wait_for_function("window.formochkaSTL && document.querySelector('#imageCreateButton').disabled === false",timeout=45000)
+              assert page.locator("#imageModelViewer canvas").count()==1
               with page.expect_download() as d:
                   page.locator("#imageCreateButton").click()
               download=d.value
               assert download.suggested_filename=="sample.stl",download.suggested_filename
+              assert Path(download.path()).read_bytes()==stl,"Downloaded bytes differ from previewed STL"
               page.locator("#imageAnotherButton").click()
               page.locator("#imageUploadLabel").wait_for(state="visible")
               assert page.locator("#imageModelViewer canvas").count()==0
