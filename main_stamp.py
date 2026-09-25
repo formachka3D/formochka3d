@@ -106,7 +106,7 @@ def generate(path,size=100,out=None):
     vertices=verts[:,[1,0,2]].copy()
     vertices[:,0]+=x*scale-2*pitch
     vertices[:,1]=-(vertices[:,1]+y*scale-2*pitch)
-    mesh=trimesh.Trimesh(vertices=vertices,faces=faces,process=True)
+    mesh=trimesh.Trimesh(vertices=vertices,faces=faces[:,::-1],process=True)
     if not mesh.is_watertight or mesh.volume<=0:raise ValueError("Invalid stamp STL")
     mesh.export(out+".stl")
     return dict(watertight=mesh.is_watertight,extents=mesh.extents.tolist(),features=len(paths),output=out)
