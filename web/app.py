@@ -528,11 +528,12 @@ PAGE = """
                 </div>
             </div>
 
+            <section id="imageModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем. Меняйте размер и высоту выше.</p><div id="imageModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div><p id="imageModelMessage" role="status">Подготавливаем модель...</p><button type="button" disabled style="padding:16px; width:100%; border-radius:14px; opacity:.65">Заказать готовую формочку — скоро</button></section>
             <button
                 class="create-button"
                 id="imageCreateButton"
             >
-                Подтвердить и создать STL
+                Скачать STL
             </button>
 
             <div
@@ -840,6 +841,7 @@ PAGE = """
 
                 document.getElementById("imageConfirmContour").style.display = "block";
                 document.getElementById("imageSettings").style.display = "none";
+                document.getElementById("imageModelStage").style.display = "none";
                 document.getElementById("imageCreateButton").style.display = "none";
 
                 document.getElementById(
@@ -868,112 +870,14 @@ PAGE = """
     );
 
 
-    document.getElementById(
-        "imageCreateButton"
-    ).addEventListener(
-        "click",
-        async function () {
-
-            const status =
-                document.getElementById(
-                    "imageStatus"
-                );
-
-            const error =
-                document.getElementById(
-                    "imageError"
-                );
-
-            error.style.display = "none";
-            status.style.display = "block";
-
-            const formData =
-                new FormData();
-
-            formData.append(
-                "file",
-                currentImageFile
-            );
-
-            formData.append(
-                "name",
-                currentImageName
-            );
-
-            formData.append(
-                "size",
-                imageSize.value
-            );
-
-            formData.append(
-                "height",
-                imageHeight.value
-            );
-
-            try {
-                const response =
-                    await fetch(
-                        "/create-image",
-                        {
-                            method: "POST",
-                            body: formData
-                        }
-                    );
-
-                if (!response.ok) {
-                    const data =
-                        await response.json();
-
-                    throw new Error(
-                        data.error ||
-                        "Не удалось создать STL"
-                    );
-                }
-
-                const blob =
-                    await response.blob();
-
-                const url =
-                    URL.createObjectURL(
-                        blob
-                    );
-
-                const a =
-                    document.createElement(
-                        "a"
-                    );
-
-                a.href = url;
-
-                a.download =
-                    currentImageName +
-                    ".stl";
-
-                document.body.appendChild(
-                    a
-                );
-
-                a.click();
-                a.remove();
-
-                URL.revokeObjectURL(
-                    url
-                );
-            }
-
-            catch (e) {
-                error.textContent =
-                    e.message;
-
-                error.style.display =
-                    "block";
-            }
-
-            status.style.display =
-                "none";
-        }
-    );
-
+    document.getElementById("imageCreateButton").addEventListener("click",()=>{
+        const blob=window.formochkaSTL;
+        if(!blob)return;
+        const url=URL.createObjectURL(blob),link=document.createElement("a");
+        link.href=url;link.download=currentImageName+".stl";
+        document.body.appendChild(link);link.click();link.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+    });
 
     document.getElementById(
         "imageAnotherButton"
@@ -992,6 +896,8 @@ PAGE = """
 
             document.getElementById("imageConfirmContour").style.display = "none";
             document.getElementById("imageSettings").style.display = "none";
+            document.getElementById("imageModelStage").style.display = "none";
+            window.dispatchEvent(new Event("formochka:clear"));
 
             document.getElementById(
                 "imageCreateButton"
@@ -1026,7 +932,12 @@ PAGE = """
     document.getElementById("imageConfirmContour").addEventListener("click", function () {
         this.style.display = "none";
         document.getElementById("imageSettings").style.display = "block";
+        document.getElementById("imageModelStage").style.display = "block";
         document.getElementById("imageCreateButton").style.display = "block";
+        window.dispatchEvent(new Event("formochka:build"));
+    });
+    for (const slider of [imageSize,imageHeight]) slider.addEventListener("input",()=>{
+        if (document.getElementById("imageModelStage").style.display === "block") window.dispatchEvent(new Event("formochka:build"));
     });
 
     const textFile =
@@ -1295,6 +1206,41 @@ PAGE = """
     );
 </script>
 
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import {STLLoader} from "three/addons/loaders/STLLoader.js";
+import {OrbitControls} from "three/addons/controls/OrbitControls.js";
+const holder=document.getElementById("imageModelViewer"),message=document.getElementById("imageModelMessage"),button=document.getElementById("imageCreateButton");
+let version=0,timer,controller,view;
+window.formochkaSTL=null;
+function clear(){if(view){view.stop();view.controls.dispose();view.geometry.dispose();view.material.dispose();view.renderer.dispose();view.renderer.domElement.remove();view=null;}}
+window.addEventListener("formochka:clear",()=>{version++;clearTimeout(timer);controller?.abort();clear();window.formochkaSTL=null;button.disabled=true;});
+window.addEventListener("formochka:build",()=>{version++;clearTimeout(timer);controller?.abort();window.formochkaSTL=null;button.disabled=true;message.textContent="Создаём 3D-модель...";const v=version;timer=setTimeout(()=>build(v),450);});
+async function build(v){
+ controller=new AbortController();
+ const form=new FormData();form.append("file",currentImageFile);form.append("name",currentImageName);form.append("size",imageSize.value);form.append("height",imageHeight.value);
+ try{
+ const response=await fetch("/create-image",{method:"POST",body:form,signal:controller.signal});
+ if(!response.ok){const e=await response.json().catch(()=>({}));throw Error(e.error||"Ошибка генерации");}
+ const blob=await response.blob();if(v!==version)return;
+ const geometry=new STLLoader().parse(await blob.arrayBuffer());if(v!==version){geometry.dispose();return;}
+ clear();geometry.computeVertexNormals();geometry.computeBoundingBox();geometry.center();
+ const scene=new THREE.Scene();scene.background=new THREE.Color(0xfff7f2);
+ const material=new THREE.MeshStandardMaterial({color:0xd58d6d,side:THREE.DoubleSide,roughness:.7});
+ const mesh=new THREE.Mesh(geometry,material);mesh.rotation.x=-Math.PI/2;scene.add(mesh);
+ scene.add(new THREE.HemisphereLight(0xffffff,0x967967,2));
+ const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(100,150,100);scene.add(light);
+ const width=holder.clientWidth||320,renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(width,320);holder.replaceChildren(renderer.domElement);
+ const camera=new THREE.PerspectiveCamera(45,width/320,.1,3000),span=geometry.boundingBox.getSize(new THREE.Vector3()).length();
+ camera.position.set(span*.8,span*.85,span*.9);camera.lookAt(0,0,0);
+ const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;
+ let running=true;function frame(){if(!running)return;controls.update();renderer.render(scene,camera);requestAnimationFrame(frame);}
+ view={stop:()=>{running=false;},controls,geometry,material,renderer};frame();
+ window.formochkaSTL=blob;button.disabled=false;message.textContent="Модель готова. Её можно вращать и скачать.";
+ }catch(e){if(v===version&&e.name!=="AbortError")message.textContent=e.message;}
+}
+</script>
 </body>
 </html>
 """
