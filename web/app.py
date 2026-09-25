@@ -566,7 +566,11 @@ PAGE = """
                 Для букв и цифр сохраняются внутренние отверстия и перемычки.
             </div>
 
-            <div class="upload-area" id="textSelectionArea">
+            <div class="upload-area" id="textIntroArea">
+                <img class="example-image" src="/static/example_text.png" alt="Буква и цифра, формочка и готовый пряник">
+                <button class="main-button" id="textStartButton" type="button">Выбрать букву или цифру</button>
+            </div>
+            <div class="upload-area" id="textSelectionArea" style="display:none">
                 <p style="font-weight:700;margin:0 0 12px">Выберите букву или цифру</p>
                 <div id="textSymbolGrid" role="group" aria-label="Алфавит и цифры" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:18px"></div>
                 <label for="textFont" style="display:block;font-weight:700;margin-bottom:8px">Шрифт</label>
@@ -928,6 +932,11 @@ PAGE = """
         if (document.getElementById("imageModelStage").style.display === "block") window.dispatchEvent(new Event("formochka:build"));
     });
 
+    document.getElementById("textStartButton").addEventListener("click",()=>{
+        document.getElementById("textIntroArea").style.display="none";
+        document.getElementById("textSelectionArea").style.display="block";
+        document.getElementById("textSelectionArea").scrollIntoView({behavior:"smooth",block:"start"});
+    });
     // Letter/number selector: generate a clean black silhouette locally.
     const textGrid=document.getElementById("textSymbolGrid");
     const textFont=document.getElementById("textFont");
@@ -1142,11 +1151,12 @@ PAGE = """
 
             label.style.display =
                 "block";
-            document.getElementById("textSelectionArea").style.display="block";
+            document.getElementById("textSelectionArea").style.display="none";
+            document.getElementById("textIntroArea").style.display="block";
 
             label.textContent =
                 "Создать контур";
-            document.getElementById("textSelectionArea").scrollIntoView({behavior: "smooth", block: "center"});
+            document.getElementById("textIntroArea").scrollIntoView({behavior: "smooth", block: "center"});
         }
     );
 </script>
