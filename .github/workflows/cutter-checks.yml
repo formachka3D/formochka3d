@@ -161,7 +161,7 @@ jobs:
               page.locator("#imageModelViewer canvas").wait_for(state="visible",timeout=45000)
               page.wait_for_function("window.formochkaSTL && document.querySelector('#imageCreateButton').disabled === false",timeout=45000)
               # Changing height must invalidate the previous download and rebuild.
-              page.locator("#imageHeight").fill("20")
+              page.locator("#imageHeight").evaluate("(el) => {el.value = 20; el.dispatchEvent(new Event(\'input\', {bubbles:true}));}")
               page.wait_for_function("window.formochkaSTL && document.querySelector('#imageCreateButton').disabled === false",timeout=45000)
               assert page.locator("#imageModelViewer canvas").count()==1
               with page.expect_download() as d:
