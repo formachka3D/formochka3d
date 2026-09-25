@@ -481,7 +481,7 @@ PAGE = """
             <div id="imageStampPreviewBox" class="preview-box" style="display:none">
                 <h3>Проверьте внутренние линии оттиска</h3>
                 <img id="imageStampPreview" alt="Предварительные линии оттиска" style="max-width:100%">
-                <p style="font-size:14px;color:#77675f">Предварительный просмотр. STL оттиска пока не формируется.</p>
+                <p style="font-size:14px;color:#77675f">Экспериментальный режим: проверьте внутренние линии перед печатью.</p>
             </div>
             <button class="create-button" id="imageConfirmContour" type="button" style="display:none">Подтвердить контур</button>
             <section id="imageModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем.</p><div id="imageModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div><p>Настройте размер и высоту под моделью.</p>            <div
@@ -542,6 +542,7 @@ PAGE = """
             </div>
 
 <p id="imageModelMessage" role="status">Подготавливаем модель...</p><button type="button" disabled style="padding:16px; width:100%; border-radius:14px; opacity:.65">Заказать готовую формочку — скоро</button></section>
+            <button type="button" class="create-button" id="stampDownload" style="display:none">Скачать STL оттиска</button><p id="stampDownloadStatus" role="status"></p>
             <button
                 class="create-button"
                 id="imageCreateButton"
@@ -878,6 +879,18 @@ PAGE = """
     );
 
 
+    document.getElementById("stampDownload").addEventListener("click",async function(){
+        if(!currentImageFile)return;
+        this.disabled=true;const status=document.getElementById("stampDownloadStatus");status.textContent="Создаём оттиск...";
+        const fd=new FormData();fd.append("file",currentImageFile);fd.append("size",imageSize.value);
+        try{
+            const r=await fetch("/create-stamp",{method:"POST",body:fd});
+            if(!r.ok)throw Error("Не удалось создать оттиск");
+            const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");
+            a.href=url;a.download=(currentImageName||"formochka")+"_ottisk.stl";document.body.appendChild(a);a.click();a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url),3000);status.textContent="STL готов";
+        }catch(e){status.textContent=e.message;}finally{this.disabled=false;}
+    });
     document.getElementById("imageCreateButton").addEventListener("click",()=>{
         const blob=window.formochkaSTL;
         if(!blob)return;
@@ -953,6 +966,7 @@ PAGE = """
             document.getElementById("imageOutputChoice").style.display="block";
             document.getElementById("imageOutputContinue").style.display="none";
         }
+        document.getElementById("stampDownload").style.display=document.querySelector('input[name="imageOutputMode"]:checked').value==="stamp"?"block":"none";
         window.dispatchEvent(new Event("formochka:build"));
     });
     for (const slider of [imageSize,imageHeight]) slider.addEventListener("input",()=>{
@@ -1349,7 +1363,13 @@ async def prepare_image(
         if mode not in {"cutter", "stamp"}:
             raise HTTPException(status_code=400, detail="Неверный режим")
         if mode == "stamp":
-            _prepare_stamp_preview(input_path, stored_file)
+            stamp_base=os.path.join("output",os.path.splitext(stored_file)[0]+"_stamp")
+            process=await asyncio.create_subprocess_exec(sys.executable,"main_stamp.py",input_path,"100",stamp_base,stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.PIPE)
+            _,err=await process.communicate()
+            if process.returncode!=0:
+                return JSONResponse({"error":"Не удалось распознать оттиск"},status_code=422)
+            try: os.remove(stamp_base+".stl")
+            except FileNotFoundError: pass
 
         return {
             "file": stored_file,
@@ -1515,3 +1535,24 @@ def preview_text(file: str):
         )
 
     return FileResponse(path)
+
+@app.post("/create-stamp")
+async def create_stamp(file: str = Form(...), size: float = Form(...)):
+    if not _valid_upload_name(file) or not 40 <= size <= 200:
+        return JSONResponse({"error":"Неверные параметры"},status_code=400)
+    source=os.path.join("input",file)
+    if not os.path.isfile(source):
+        return JSONResponse({"error":"Изображение не найдено"},status_code=404)
+    prefix=os.path.join("output",uuid.uuid4().hex+"_stamp")
+    try:
+        process=await asyncio.create_subprocess_exec(sys.executable,"main_stamp.py",source,str(size),prefix,stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.PIPE)
+        _,stderr=await process.communicate()
+        if process.returncode!=0 or not os.path.isfile(prefix+".stl"):
+            return JSONResponse({"error":"Не удалось создать оттиск"},status_code=422)
+        from fastapi.responses import Response
+        with open(prefix+".stl","rb") as model: payload=model.read()
+        return Response(content=payload,media_type="application/octet-stream",headers={"Content-Disposition":'attachment; filename="ottisk.stl"'})
+    finally:
+        for ext in (".stl",".svg","_mask.png","_preview.png"):
+            try: os.remove(prefix+ext)
+            except FileNotFoundError: pass
