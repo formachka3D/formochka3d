@@ -36,9 +36,9 @@ def generate(path,size=100,out=None):
     x,y,w,h=cv2.boundingRect(vector.reshape(-1,1,2))
     if min(w,h)<20:raise ValueError("Silhouette too small")
     scale=float(size)/max(w,h)
-    pitch=.25
+    pitch=.18
     width,height=int(np.ceil(w*scale/pitch)),int(np.ceil(h*scale/pitch))
-    if width*height>1000000:raise ValueError("Stamp too large")
+    if width*height>1500000:raise ValueError("Stamp too large")
     roi=cv2.resize(bgr[y:y+h,x:x+w],(width,height),interpolation=cv2.INTER_AREA)
     def coords(pts):return np.rint((np.asarray(pts)-[x,y])*(scale/pitch)).astype(np.int32)
     silhouette=np.zeros((height,width),np.uint8)
@@ -98,9 +98,8 @@ def generate(path,size=100,out=None):
     paths.append("M "+" L ".join(f"{px*pitch:.2f},{py*pitch:.2f}" for px,py in base_pts)+" Z")
     svg=f'<svg xmlns="http://www.w3.org/2000/svg" width="{width*pitch:.2f}mm" height="{height*pitch:.2f}mm" viewBox="0 0 {width*pitch:.2f} {height*pitch:.2f}">'+''.join(f'<path d="{d}" fill="none" stroke="#1766cf" stroke-width=".5"/>' for d in paths)+'</svg>'
     with open(out+".svg","w") as file:file.write(svg)
-    rim=np.zeros_like(base)
-    cv2.polylines(rim,[coords(base_poly.exterior.coords)],True,1,max(2,round(1.2/pitch)))
-    relief=np.maximum(clean,rim)
+    # The cutter cuts the perimeter; the stamp embosses only interior details.
+    relief=clean
     volume=np.zeros((height+4,width+4,16),np.uint8)
     volume[2:-2,2:-2,1:9]=base[:,:,None]
     volume[2:-2,2:-2,9:14]=relief[:,:,None]
