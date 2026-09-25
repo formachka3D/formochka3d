@@ -838,7 +838,7 @@ PAGE = """
                 document.getElementById(
                     "imagePreviewBox"
                 ).style.display =
-                    "block";
+                    mode==="stamp"?"none":"block";
 
                 document.getElementById("imageConfirmContour").style.display = "block";
                 document.getElementById("imageOutputChoice").style.display="none";
@@ -1402,6 +1402,7 @@ async def _create_stl(file: str, name: str, size: float, height: float, script: 
     run_input = os.path.join("input", run_name + extension)
     output_path = os.path.join("output", run_name + ".stl")
     preview_path = os.path.join("output", run_name + "_outline.png")
+    vector_path = os.path.join("output", run_name + "_outline.npy")
     shutil.copyfile(source, run_input)
     try:
         process = await asyncio.create_subprocess_exec(
@@ -1424,7 +1425,7 @@ async def _create_stl(file: str, name: str, size: float, height: float, script: 
             headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(safe_name + ".stl")},
         )
     finally:
-        for path in (run_input, output_path, preview_path):
+        for path in (run_input, output_path, preview_path, vector_path):
             try:
                 os.remove(path)
             except FileNotFoundError:
