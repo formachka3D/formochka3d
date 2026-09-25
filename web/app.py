@@ -1045,6 +1045,8 @@ PAGE = """
         this.style.display = "none";
         document.getElementById("textPreviewBox").style.display = "none";
         document.getElementById("textModelStage").style.display = "block";
+        document.getElementById("textSettings").style.display = "block";
+        document.getElementById("textCreateButton").style.display = "block";
         window.dispatchEvent(new Event("formochka:text-build"));
     });
     for (const slider of [textSize,textHeight]) slider.addEventListener("input",()=>{
