@@ -33,3 +33,52 @@ jobs:
               Path(f"/tmp/formochka_script_{i}.mjs").write_text(script)
           PY
           for script in /tmp/formochka_script_*.mjs; do node --check "$script"; done
+
+
+  geometry-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install geometry test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==2.0.2 opencv-python-headless==4.10.0.84 scikit-image==0.24.0 scipy==1.13.1 shapely==2.0.7 trimesh==4.12.2 triangle==20250106 pillow==11.3.0
+      - name: Test real image and letter STL generation
+        run: |
+          mkdir -p input output
+          python - <<'PY'
+          import cv2, numpy as np
+          from PIL import Image, ImageDraw
+          from pathlib import Path
+          # Black ring with a real internal hole.
+          canvas = Image.new("RGB", (240,240), "white")
+          draw = ImageDraw.Draw(canvas)
+          draw.ellipse((24,24,216,216),fill="black")
+          draw.ellipse((86,86,154,154),fill="white")
+          canvas.save("input/ring.png")
+          # The image generator's rembg is stubbed ONLY in CI:
+          # real production uses its installed background-removal model.
+          Path("/tmp/rembg.py").write_text("def remove(data):\\n    return data\\n")
+          rgba = Image.new("RGBA",(240,240),(0,0,0,0))
+          draw = ImageDraw.Draw(rgba)
+          draw.ellipse((24,24,216,216),fill=(0,0,0,255))
+          rgba.save("input/alpha.png")
+          PY
+          PYTHONPATH=/tmp python main.py input/alpha.png 100 10
+          python main_text.py input/ring.png 100 10
+          python main_text.py input/ring.png 100 30
+          python - <<'PY'
+          import trimesh
+          from pathlib import Path
+          for name,expected in (("alpha",12),("ring",32)):
+              path=Path("output")/(name+".stl")
+              assert path.is_file() and path.stat().st_size>84,path
+              mesh=trimesh.load_mesh(path)
+              assert abs(mesh.extents[2]-expected)<.02,(name,mesh.extents)
+              assert mesh.volume>0,(name,mesh.volume)
+              assert (Path("output")/(name+"_outline.png")).is_file()
+              print(name, "STL height",mesh.extents[2],"volume",mesh.volume)
+          PY
