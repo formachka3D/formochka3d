@@ -239,6 +239,10 @@ outer_contour = contours[
     outer_index
 ]
 
+# Сглаживаем пиксельный шум фотографий и декоративных рисунков.
+outer_contour = cv2.approxPolyDP(outer_contour, 1.5, True)
+outer_area = cv2.contourArea(outer_contour)
+
 
 # =========================================================
 # ВНУТРЕННИЕ ОТВЕРСТИЯ
@@ -255,10 +259,11 @@ for i, h in enumerate(hierarchy):
             contours[i]
         )
 
-        if area > 20:
+        # Не превращаем блики, тени и мелкие детали в сотни отверстий.
+        if area > max(20, outer_area * 0.002):
 
             hole_contours.append(
-                contours[i]
+                cv2.approxPolyDP(contours[i], 1.5, True)
             )
 
 
@@ -369,6 +374,11 @@ polygon = Polygon(
 
 if not polygon.is_valid:
     polygon = polygon.buffer(0)
+
+# Сложный рисунок может распадаться на несколько контуров после исправления.
+# Основная цифра — самый крупный связный силуэт.
+if isinstance(polygon, MultiPolygon):
+    polygon = max(polygon.geoms, key=lambda part: part.area)
 
 
 if polygon.is_empty:
