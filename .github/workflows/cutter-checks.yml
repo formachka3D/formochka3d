@@ -1,0 +1,178 @@
+name: Cutter regression checks
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  syntax-and-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check Python syntax and UI wiring
+        run: |
+          python -m py_compile main.py main_text.py web/app.py
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          image = Path("main.py").read_text()
+          text = Path("main_text.py").read_text()
+          page = Path("web/app.py").read_text()
+          assert "height=TOTAL_HEIGHT + RIM_HEIGHT" in image
+          assert "TOTAL_HEIGHT + RIM_HEIGHT" in text
+          for marker in ("imageConfirmContour", "imageModelViewer", "formochka:build", "formochka:clear", "STLLoader", "OrbitControls", "window.formochkaSTL"):
+              assert marker in page, marker
+          scripts = re.findall(r'<script(?: type="module")?>(.*?)</script>', page, re.S)
+          assert len(scripts) >= 2, len(scripts)
+          for i, script in enumerate(scripts):
+              Path(f"/tmp/formochka_script_{i}.mjs").write_text(script)
+          PY
+          for script in /tmp/formochka_script_*.mjs; do node --check "$script"; done
+
+
+  geometry-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install geometry test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==2.0.2 opencv-python-headless==4.10.0.84 scikit-image==0.24.0 scipy==1.13.1 shapely==2.0.7 trimesh==4.12.2 triangle==20250106 pillow==11.3.0
+      - name: Test real image and letter STL generation
+        run: |
+          mkdir -p input output
+          python - <<'PY'
+          import cv2, numpy as np
+          from PIL import Image, ImageDraw
+          from pathlib import Path
+          # Black ring with a real internal hole.
+          canvas = Image.new("RGB", (240,240), "white")
+          draw = ImageDraw.Draw(canvas)
+          draw.ellipse((24,24,216,216),fill="black")
+          draw.ellipse((86,86,154,154),fill="white")
+          canvas.save("input/ring.png")
+          # The image generator's rembg is stubbed ONLY in CI:
+          # real production uses its installed background-removal model.
+          Path("/tmp/rembg.py").write_text("def remove(data):\n    return data\n")
+          rgba = Image.new("RGBA",(240,240),(0,0,0,0))
+          draw = ImageDraw.Draw(rgba)
+          draw.ellipse((24,24,216,216),fill=(0,0,0,255))
+          rgba.save("input/alpha.png")
+          PY
+          PYTHONPATH=/tmp python main.py input/alpha.png 100 10
+          python main_text.py input/ring.png 100 10
+          python main_text.py input/ring.png 100 30
+          python - <<'PY'
+          import trimesh
+          from pathlib import Path
+          for name,expected in (("alpha",12),("ring",32)):
+              path=Path("output")/(name+".stl")
+              assert path.is_file() and path.stat().st_size>84,path
+              mesh=trimesh.load_mesh(path)
+              assert abs(mesh.extents[2]-expected)<.02,(name,mesh.extents)
+              assert mesh.volume>0,(name,mesh.volume)
+              assert (Path("output")/(name+"_outline.png")).is_file()
+              print(name, "STL height",mesh.extents[2],"volume",mesh.volume)
+          PY
+
+
+      - name: Test concurrent real API STL requests
+        run: |
+          python -m pip install fastapi==0.128.8 python-multipart==0.0.20 httpx==0.28.1
+          python - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor
+          from fastapi.testclient import TestClient
+          from web.app import app
+          from pathlib import Path
+          import io
+          import trimesh
+          from PIL import Image
+          client=TestClient(app)
+          image=Path("input/ring.png").read_bytes()
+          uploaded=client.post("/prepare-text",files={"file":("ring.png",image,"image/png")})
+          assert uploaded.status_code==200,uploaded.text
+          key=uploaded.json()["file"]
+          contour=client.get("/preview-text",params={"file":key})
+          assert contour.status_code==200 and contour.headers["content-type"].startswith("image/png"),contour.text
+          assert client.get("/preview-text",params={"file":"../ring.png"}).status_code==400
+          def generate(height):
+              response=client.post("/create-text",data={"file":key,"name":"ring","size":"100","height":str(height)})
+              assert response.status_code==200,response.text
+              mesh=trimesh.load_mesh(io.BytesIO(response.content),file_type="stl")
+              assert abs(mesh.extents[2]-(height+2))<.02,(height,mesh.extents)
+              return mesh.extents[2],len(response.content)
+          with ThreadPoolExecutor(max_workers=2) as pool:
+              results=list(pool.map(generate,(10,30)))
+          assert results[0][0]!=results[1][0],results
+          print("PASS: isolated concurrent HTTP STL requests:",results)
+          PY
+
+
+  browser-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install browser test tools
+        run: |
+          python -m pip install fastapi==0.128.8 uvicorn==0.39.0 python-multipart==0.0.20 playwright==1.58.0 numpy==2.0.2 trimesh==4.12.2 shapely==2.0.7 triangle==20250106 pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - name: Exercise real 3D viewer in Chromium
+        run: |
+          mkdir -p input output
+          python -m uvicorn web.app:app --host 127.0.0.1 --port 8000 >/tmp/server.log 2>&1 &
+          python - <<'PY'
+          import io, time
+          from pathlib import Path
+          import trimesh
+          from playwright.sync_api import sync_playwright
+          mesh=trimesh.creation.box(extents=(80,60,12))
+          stl=mesh.export(file_type="stl")
+          from PIL import Image
+          img=Image.new("RGB",(16,16),"white")
+          out=io.BytesIO();img.save(out,format="PNG");png=out.getvalue()
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True,args=["--no-sandbox","--use-gl=angle","--use-angle=swiftshader"])
+              page=browser.new_page(viewport={"width":390,"height":844},accept_downloads=True)
+              errors=[]
+              page.on("pageerror",lambda e: errors.append(str(e)))
+              page.route("**/prepare-image",lambda route:route.fulfill(status=200,content_type="application/json",body='{"file":"0123456789abcdef0123456789abcdef.png","name":"sample"}'))
+              page.route("**/preview-image?**",lambda route:route.fulfill(status=200,content_type="image/png",body=png))
+              page.route("**/create-image",lambda route:route.fulfill(status=200,content_type="application/octet-stream",body=stl))
+              for _ in range(30):
+                  try:
+                      page.goto("http://127.0.0.1:8000/",wait_until="domcontentloaded",timeout=5000)
+                      break
+                  except Exception:
+                      time.sleep(1)
+              page.locator("#imageFile").set_input_files({"name":"sample.png","mimeType":"image/png","buffer":png})
+              page.locator("#imageConfirmContour").wait_for(state="visible")
+              page.locator("#imageConfirmContour").click()
+              page.locator("#imageModelViewer canvas").wait_for(state="visible",timeout=45000)
+              page.wait_for_function("window.formochkaSTL && document.querySelector('#imageCreateButton').disabled === false",timeout=45000)
+              # Changing height must invalidate the previous download and rebuild.
+              page.locator("#imageHeight").evaluate("(el) => {el.value = 20; el.dispatchEvent(new Event(\'input\', {bubbles:true}));}")
+              page.wait_for_function("window.formochkaSTL && document.querySelector('#imageCreateButton').disabled === false",timeout=45000)
+              assert page.locator("#imageModelViewer canvas").count()==1
+              with page.expect_download() as d:
+                  page.locator("#imageCreateButton").click()
+              download=d.value
+              assert download.suggested_filename=="sample.stl",download.suggested_filename
+              assert Path(download.path()).read_bytes()==stl,"Downloaded bytes differ from previewed STL"
+              page.locator("#imageAnotherButton").click()
+              page.locator("#imageUploadLabel").wait_for(state="visible")
+              assert page.locator("#imageModelViewer canvas").count()==0
+              assert not errors,errors
+              print("PASS: mobile Chromium 3D canvas, preview STL download, reset, no JS errors")
+              browser.close()
+          PY

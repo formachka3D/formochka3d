@@ -74,19 +74,10 @@ with open(input_file, "rb") as f:
 result_bytes = remove(input_bytes)
 
 
-temp_path = "input/_temp_no_bg.png"
-
-
-with open(temp_path, "wb") as f:
-    f.write(result_bytes)
-
-
-# =========================================================
-# СОЗДАЁМ МАСКУ
-# =========================================================
-
-img = cv2.imread(
-    temp_path,
+# Decode the per-request background-removal result in memory.
+# A shared temporary file would mix images from concurrent users.
+img = cv2.imdecode(
+    np.frombuffer(result_bytes, dtype=np.uint8),
     cv2.IMREAD_UNCHANGED
 )
 
@@ -177,7 +168,7 @@ cv2.polylines(
 
 
 cv2.imwrite(
-    "output/vector_outline.png",
+    f"output/{os.path.splitext(os.path.basename(input_file))[0]}_outline.png",
     vector_preview
 )
 
@@ -279,7 +270,7 @@ rim = rim_outer.difference(
 wall_mesh = (
     trimesh.creation.extrude_polygon(
         wall,
-        height=TOTAL_HEIGHT
+        height=TOTAL_HEIGHT + RIM_HEIGHT
     )
 )
 
@@ -308,7 +299,7 @@ if round(
     mesh.extents[2],
     2
 ) != round(
-    TOTAL_HEIGHT,
+    TOTAL_HEIGHT + RIM_HEIGHT,
     2
 ):
 
