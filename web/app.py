@@ -1143,6 +1143,7 @@ async function build(v){
  window.formochkaSTL=blob;button.disabled=false;message.textContent="Модель готова. Её можно вращать и скачать.";
  }catch(e){if(v===version&&e.name!=="AbortError")message.textContent=e.message;}
 }
+{
 const holder=document.getElementById("textModelViewer"),message=document.getElementById("textModelMessage"),button=document.getElementById("textCreateButton");
 let version=0,timer,controller,view;
 window.formochkaTextSTL=null;
@@ -1171,6 +1172,8 @@ async function build(v){
  view={stop:()=>{running=false;},controls,geometry,material,renderer};frame();
  window.formochkaTextSTL=blob;button.disabled=false;message.textContent="Модель готова. Её можно вращать и скачать.";
  }catch(e){if(v===version&&e.name!=="AbortError")message.textContent=e.message;}
+}
+
 }
 </script>
 </body>
