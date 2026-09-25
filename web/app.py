@@ -430,7 +430,7 @@ PAGE = """
             <h2>Картинка → формочка</h2>
 
             <div class="mode-description">
-                Загрузите фотографию, рисунок или готовый силуэт.
+                Загрузите фотографию, рисунок или готовый силуэт.<br><span style="font-size:13px;color:#99877e">JPG · PNG · WEBP</span>
             </div>
 
             <div class="upload-area">
@@ -448,9 +448,6 @@ PAGE = """
                     Загрузить изображение
                 </label>
 
-                <div class="file-note">
-                    JPG, PNG, WEBP
-                </div>
             </div>
 
             <input
