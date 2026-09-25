@@ -462,7 +462,7 @@ PAGE = """
                 <label style="display:block;padding:16px;border:1px solid #e4d4ca;border-radius:12px;margin-bottom:10px;cursor:pointer"><input type="radio" name="imageOutputMode" value="cutter" checked> <b>Просто формочка</b><br><span style="font-size:14px;color:#77675f">Резак по внешнему контуру рисунка.</span></label>
                 <label style="display:block;padding:16px;border:1px solid #e4d4ca;border-radius:12px;margin-bottom:18px;cursor:pointer"><input type="radio" name="imageOutputMode" value="stamp"> <b>Формочка + оттиск</b><br><span style="font-size:14px;color:#77675f">Резак и отдельный штамп с деталями изображения.</span></label>
                 <button class="main-button" type="button" id="imageOutputContinue">Создать контур</button>
-                <p id="imageStampNotice" style="display:none;color:#77675f;font-size:14px;margin:14px 0 0">Для оттиска потребуется отдельное подтверждение внутренних линий. Генерация оттиска ещё разрабатывается.</p>
+                <p id="imageStampNotice" style="display:none;color:#77675f;font-size:14px;margin:14px 0 0">После подтверждения вы получите две отдельные 3D-модели: формочку и оттиск.</p>
             </div>
 
 
@@ -541,7 +541,7 @@ PAGE = """
                 </div>
             </div>
 
-<p id="imageModelMessage" role="status">Подготавливаем модель...</p><button type="button" disabled style="padding:16px; width:100%; border-radius:14px; opacity:.65">Заказать готовую формочку — скоро</button></section>
+<p id="imageModelMessage" role="status">Подготавливаем модель...</p><button type="button" id="imageModelToggle" style="display:none;padding:12px;border-radius:12px;width:100%;margin-bottom:12px">Показать формочку</button><button type="button" disabled style="padding:16px; width:100%; border-radius:14px; opacity:.65">Заказать готовую формочку — скоро</button></section>
             <button type="button" class="create-button" id="stampDownload" style="display:none">Скачать STL оттиска</button><p id="stampDownloadStatus" role="status"></p>
             <button
                 class="create-button"
@@ -880,6 +880,7 @@ PAGE = """
 
 
     document.getElementById("stampDownload").addEventListener("click",async function(){
+        if(window.formochkaStampSTL){const url=URL.createObjectURL(window.formochkaStampSTL),a=document.createElement("a");a.href=url;a.download=(currentImageName||"formochka")+"_ottisk.stl";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);return;}
         if(!currentImageFile)return;
         this.disabled=true;const status=document.getElementById("stampDownloadStatus");status.textContent="Создаём оттиск...";
         const fd=new FormData();fd.append("file",currentImageFile);fd.append("size",imageSize.value);
@@ -1209,10 +1210,11 @@ import {STLLoader} from "three/addons/loaders/STLLoader.js";
 import {OrbitControls} from "three/addons/controls/OrbitControls.js";
 const holder=document.getElementById("imageModelViewer"),message=document.getElementById("imageModelMessage"),button=document.getElementById("imageCreateButton");
 let version=0,timer,controller,view;
-window.formochkaSTL=null;
+window.formochkaSTL=null;window.formochkaStampSTL=null;
+const toggle=document.getElementById("imageModelToggle");
 function clear(){if(view){view.stop();view.controls.dispose();view.geometry.dispose();view.material.dispose();view.renderer.dispose();view.renderer.domElement.remove();view=null;}}
-window.addEventListener("formochka:clear",()=>{version++;clearTimeout(timer);controller?.abort();clear();window.formochkaSTL=null;button.disabled=true;});
-window.addEventListener("formochka:build",()=>{version++;clearTimeout(timer);controller?.abort();window.formochkaSTL=null;button.disabled=true;message.textContent="Создаём 3D-модель...";const v=version;timer=setTimeout(()=>build(v),450);});
+window.addEventListener("formochka:clear",()=>{version++;clearTimeout(timer);controller?.abort();clear();window.formochkaSTL=null;window.formochkaStampSTL=null;toggle.style.display="none";button.disabled=true;});
+window.addEventListener("formochka:build",()=>{version++;clearTimeout(timer);controller?.abort();window.formochkaSTL=null;window.formochkaStampSTL=null;toggle.style.display="none";button.disabled=true;message.textContent="Создаём 3D-модель...";const v=version;timer=setTimeout(()=>build(v),450);});
 async function build(v){
  controller=new AbortController();
  const form=new FormData();form.append("file",currentImageFile);form.append("name",currentImageName);form.append("size",imageSize.value);form.append("height",imageHeight.value);
@@ -1232,8 +1234,25 @@ async function build(v){
  camera.position.set(span*.8,span*.85,span*.9);camera.lookAt(0,0,0);
  const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;
  let running=true;function frame(){if(!running)return;controls.update();renderer.render(scene,camera);requestAnimationFrame(frame);}
- view={stop:()=>{running=false;},controls,geometry,material,renderer};frame();
- window.formochkaSTL=blob;button.disabled=false;message.textContent="Модель готова. Её можно вращать и скачать.";
+ view={stop:()=>{running=false;},controls,geometry,material,renderer,mesh};frame();
+ window.formochkaSTL=blob;button.disabled=false;message.textContent="Формочка готова.";
+ if(document.querySelector('input[name="imageOutputMode"]:checked').value==="stamp"){
+   message.textContent="Формочка готова. Создаём 3D-оттиск...";
+   const sf=new FormData();sf.append("file",currentImageFile);sf.append("size",imageSize.value);
+   const sr=await fetch("/create-stamp",{method:"POST",body:sf,signal:controller.signal});
+   if(!sr.ok)throw Error("Формочка готова, но не удалось создать оттиск");
+   const sb=await sr.blob();if(v!==version)return;
+   const sg=new STLLoader().parse(await sb.arrayBuffer());if(v!==version){sg.dispose();return;}
+   sg.computeVertexNormals();sg.computeBoundingBox();sg.center();
+   window.formochkaStampSTL=sb;
+   const cg=geometry;let showStamp=true;mesh.geometry=sg;view.geometry=sg;
+   const ss=sg.boundingBox.getSize(new THREE.Vector3()).length();
+   camera.position.set(ss*.8,ss*.85,ss*.9);controls.target.set(0,0,0);controls.update();
+   toggle.style.display="block";toggle.textContent="Показать формочку";
+   toggle.onclick=()=>{showStamp=!showStamp;mesh.geometry=showStamp?sg:cg;view.geometry=mesh.geometry;toggle.textContent=showStamp?"Показать формочку":"Показать оттиск";message.textContent=showStamp?"3D-оттиск: рельеф и бортик":"3D-формочка: режущая стенка";};
+   const stop=view.stop;view.stop=()=>{stop();cg.dispose();sg.dispose();};
+   message.textContent="3D-оттиск готов. Переключайте модели кнопкой.";
+ }
  }catch(e){if(v===version&&e.name!=="AbortError")message.textContent=e.message;}
 }
 {
