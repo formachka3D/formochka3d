@@ -177,7 +177,7 @@ cv2.polylines(
 
 
 cv2.imwrite(
-    "output/vector_outline.png",
+    f"output/{os.path.splitext(os.path.basename(input_file))[0]}_outline.png",
     vector_preview
 )
 
