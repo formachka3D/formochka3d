@@ -1247,10 +1247,10 @@ async function build(v){
    if(!sr.ok)throw Error("Формочка готова, но не удалось создать оттиск");
    const sb=await sr.blob();if(v!==version)return;
    const sg=new STLLoader().parse(await sb.arrayBuffer());if(v!==version){sg.dispose();return;}
-   sg.computeVertexNormals();sg.computeBoundingBox();const stampCenter=sg.boundingBox.getCenter(new THREE.Vector3());sg.center();
+   sg.computeVertexNormals();sg.computeBoundingBox();
    window.formochkaStampSTL=sb;
    const stampMaterial=new THREE.MeshStandardMaterial({color:0xe6b99e,side:THREE.DoubleSide,roughness:.72});
-   const stampMesh=new THREE.Mesh(sg,stampMaterial);stampMesh.rotation.x=-Math.PI/2;stampMesh.position.set(stampCenter.x-cutterCenter.x,stampCenter.z-cutterCenter.z,-(stampCenter.y-cutterCenter.y));
+   const stampMesh=new THREE.Mesh(sg,stampMaterial);stampMesh.rotation.x=-Math.PI/2;stampMesh.position.set(-cutterCenter.x,-cutterCenter.z,cutterCenter.y);
    scene.add(stampMesh);view.stampGeometry=sg;view.stampMaterial=stampMaterial;
    toggle.style.display="none";
    document.getElementById("stampDownload").style.display="block";
