@@ -1108,6 +1108,7 @@ PAGE = """
 
             label.textContent =
                 "Загрузить букву или цифру";
+            label.scrollIntoView({behavior: "smooth", block: "center"});
         }
     );
 </script>
