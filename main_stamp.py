@@ -1,114 +1,112 @@
-"""Isolated experimental stamp generator; never modifies cutter V3."""
-import sys, os
-import cv2
-import numpy as np
-from rembg import remove
-from scipy.ndimage import gaussian_filter
+"""Shared-contour stamp: never re-detect the cutter silhouette."""
+import os,sys,cv2,numpy as np,trimesh
+from scipy.ndimage import gaussian_filter,gaussian_filter1d
 from skimage.measure import marching_cubes
-import trimesh
 from shapely.geometry import Polygon
 
-def generate(path, size=100, out=None):
+def largest(shape):
+    if shape.is_empty:raise ValueError("Empty stamp contour")
+    if shape.geom_type=="MultiPolygon":return max(shape.geoms,key=lambda p:p.area)
+    if shape.geom_type!="Polygon":raise ValueError("Invalid stamp contour")
+    return shape
+
+def smooth(mask,area=3,external=False):
+    contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL if external else cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)
+    out=[]
+    for c in contours:
+        if cv2.contourArea(c)<area or len(c)<8:continue
+        pts=gaussian_filter1d(c[:,0,:].astype(float),sigma=1.6,axis=0,mode="wrap")
+        pts=cv2.approxPolyDP(pts.astype(np.float32).reshape(-1,1,2),.35,True)[:,0,:]
+        if len(pts)>=3:out.append(pts)
+    return out
+
+def generate(path,size=100,out=None):
     name=os.path.splitext(os.path.basename(path))[0]
     out=out or "output/"+name+"_stamp"
     os.makedirs(os.path.dirname(out) or ".",exist_ok=True)
-    original=cv2.imread(path,cv2.IMREAD_UNCHANGED)
-    if original is None: raise ValueError("Cannot read image")
-    # Exact vector contour exported by the existing cutter generator.
-    # The stamp must never call rembg or detect its own outer silhouette.
+    source=cv2.imread(path,cv2.IMREAD_COLOR)
+    if source is None:raise ValueError("Cannot read source")
     contour_path=os.path.join("output",name+"_outline.npy")
-    if not os.path.isfile(contour_path):
-        raise ValueError("Missing cutter contour: prepare the cutter first")
+    if not os.path.isfile(contour_path):raise ValueError("Prepare cutter first")
     vector=np.load(contour_path).astype(np.float32)
-    if len(vector)<3: raise ValueError("Empty cutter contour")
-    h0,w0=original.shape[:2]
-    # main.py flips the source horizontally before contour extraction.
-    bgr=original[:,:,:3] if original.ndim==3 else cv2.cvtColor(original,cv2.COLOR_GRAY2BGR)
-    bgr=cv2.flip(bgr,1)
-    silhouette=np.zeros((h0,w0),np.uint8)
-    cv2.fillPoly(silhouette,[np.rint(vector).astype(np.int32)],1)
+    if vector.ndim!=2 or vector.shape[1]!=2 or len(vector)<8:raise ValueError("Invalid cutter vector")
+    h0,w0=source.shape[:2]
+    bgr=cv2.flip(source,1)
+    poly=largest(Polygon(vector).buffer(0))
     x,y,w,h=cv2.boundingRect(vector.reshape(-1,1,2))
-    if min(w,h)<20: raise ValueError("Silhouette too small")
-    # Identical physical scale to the cutter's TARGET_SIZE / max(w,h).
-    mm_per_px=float(size)/max(w,h)
-    pitch=.30
-    width=max(2,int(np.ceil(w*mm_per_px/pitch)))
-    height=max(2,int(np.ceil(h*mm_per_px/pitch)))
-    target=(width,height)
-    obj=cv2.resize(silhouette[y:y+h,x:x+w],target,interpolation=cv2.INTER_NEAREST)
-    roi=cv2.resize(bgr[y:y+h,x:x+w],target,interpolation=cv2.INTER_AREA)
-    # Segment coherent material colors, not local shadows or image texture.
+    if min(w,h)<20:raise ValueError("Silhouette too small")
+    scale=float(size)/max(w,h)
+    pitch=.25
+    width,height=int(np.ceil(w*scale/pitch)),int(np.ceil(h*scale/pitch))
+    if width*height>1000000:raise ValueError("Stamp too large")
+    roi=cv2.resize(bgr[y:y+h,x:x+w],(width,height),interpolation=cv2.INTER_AREA)
+    def coords(pts):return np.rint((np.asarray(pts)-[x,y])*(scale/pitch)).astype(np.int32)
+    silhouette=np.zeros((height,width),np.uint8)
+    cv2.fillPoly(silhouette,[coords(poly.exterior.coords)],1)
+    base_poly=largest(poly.buffer(-1.8/scale,join_style=1,resolution=24))
+    base=np.zeros_like(silhouette)
+    cv2.fillPoly(base,[coords(base_poly.exterior.coords)],1)
+    if base.sum()<100:raise ValueError("Stamp base too small")
     lab=cv2.cvtColor(roi,cv2.COLOR_BGR2LAB)
     light=lab[:,:,0]
-    a_chan=lab[:,:,1].astype(np.int16)
-    b_chan=lab[:,:,2].astype(np.int16)
-    # Strongly dark, solid connected marks (eyes, nose, mouth, printed lines).
-    # A maximum physical area rejects the broad shadow along a cookie rim.
-    smoothed=cv2.GaussianBlur(light,(0,0),1.4)
-    valid=smoothed[obj>0]
-    if len(valid)<100: raise ValueError("Too little foreground")
-    dark_cutoff=min(112,max(65,float(np.percentile(valid,15))))
-    dark=((smoothed<dark_cutoff)&(obj>0)).astype(np.uint8)
+    aa=lab[:,:,1].astype(np.int16)
+    bb=lab[:,:,2].astype(np.int16)
+    valid=light[base>0]
+    if len(valid)<100:raise ValueError("Empty interior")
+    smoothed=cv2.GaussianBlur(light,(0,0),1.6)
+    dark_limit=min(112,max(65,float(np.percentile(valid,15))))
+    dark=((smoothed<dark_limit)&(base>0)).astype(np.uint8)
     dark=cv2.morphologyEx(dark,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
     count,labels,stats,_=cv2.connectedComponentsWithStats(dark,8)
-    marks=np.zeros_like(dark)
+    dark_marks=np.zeros_like(dark)
     for i in range(1,count):
-        x0,y0,cw,ch,area=stats[i]
-        physical_area=area*pitch*pitch
-        if 2.5<=physical_area<=90 and cw*ch>0:
-            marks[labels==i]=1
-    # Light icing or painted islands are represented by their fine boundaries,
-    # not filled solid or duplicated thick dark shadow bands.
-    neutral=(np.abs(a_chan-128)<12)&(np.abs(b_chan-128)<18)
-    bright_cutoff=max(210,float(np.percentile(light[obj>0],80)))
-    light_regions=((light>bright_cutoff)&neutral&(obj>0)).astype(np.uint8)
-    light_regions=cv2.morphologyEx(light_regions,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
-    count,labels,stats,_=cv2.connectedComponentsWithStats(light_regions,8)
-    strokes=np.zeros_like(light_regions)
+        area_mm=stats[i,cv2.CC_STAT_AREA]*pitch*pitch
+        if 2<=area_mm<=150:dark_marks[labels==i]=1
+    neutral=(np.abs(aa-128)<13)&(np.abs(bb-128)<19)
+    bright_limit=max(205,float(np.percentile(valid,75)))
+    bright=((light>bright_limit)&neutral&(base>0)).astype(np.uint8)
+    bright=cv2.morphologyEx(bright,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
+    count,labels,stats,_=cv2.connectedComponentsWithStats(bright,8)
+    light_lines=np.zeros_like(bright)
+    light_islands=np.zeros_like(bright)
     for i in range(1,count):
-        x0,y0,cw,ch,area=stats[i]
-        physical_area=area*pitch*pitch
-        solidity=area/max(1,cw*ch)
-        if 30<=physical_area<=300 and solidity>.25:
+        bx,by,bw,bh,area=stats[i]
+        area_mm=area*pitch*pitch
+        solidity=area/max(1,bw*bh)
+        if 20<=area_mm<=2000 and solidity>.28:
             region=(labels==i).astype(np.uint8)
-            contours,_=cv2.findContours(region,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(strokes,contours,-1,1,max(1,round(1.2/pitch)))
-    # Keep the same clean binary geometry for the SVG, preview and STL.
-    clean=np.maximum(marks,strokes)
-    clean=(gaussian_filter(clean.astype(float),sigma=.65)>.40).astype(np.uint8)
-    inset_px=max(2,round(2/pitch))
-    base=cv2.erode(obj,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(2*inset_px+1,)*2))
-    if base.sum()<100: raise ValueError("Base disappeared")
-    clean=cv2.bitwise_and(clean,base)
-    # One combined preview: the EXACT original cutter contour plus stamp details.
-    mask=(255-clean*255).astype(np.uint8)
-    cv2.imwrite(out+"_mask.png",mask)
+            light_islands|=region
+            for pts in smooth(region,area=8,external=True):
+                cv2.polylines(light_lines,[np.rint(pts).astype(np.int32)],True,1,max(2,round(1.2/pitch)),cv2.LINE_AA)
+    clean=np.maximum(dark_marks,light_lines)
+    clean=(gaussian_filter(clean.astype(float),sigma=1.0)>.42).astype(np.uint8)
+    clean&=base
+    cv2.imwrite(out+"_mask.png",255-clean*255)
     overlay=np.full((h0,w0,3),255,np.uint8)
-    # Preview at original pixel resolution, with shared cutter vector unchanged.
-    full_clean=np.zeros((h0,w0),np.uint8)
-    scaled=cv2.resize(clean,(w,h),interpolation=cv2.INTER_NEAREST)
-    full_clean[y:y+h,x:x+w]=scaled
-    overlay[full_clean>0]=(240,95,25)
+    def to_full(pts):return np.rint(np.asarray(pts)*(pitch/scale)+[x,y]).astype(np.int32)
+    for pts in smooth(light_islands,area=8,external=True):
+        cv2.polylines(overlay,[to_full(pts)],True,(225,93,20),2,cv2.LINE_AA)
+    for pts in smooth(dark_marks):
+        cv2.fillPoly(overlay,[to_full(pts)],(225,93,20),cv2.LINE_AA)
+    cv2.polylines(overlay,[np.rint(base_poly.exterior.coords).astype(np.int32)],True,(225,93,20),2,cv2.LINE_AA)
     cv2.polylines(overlay,[np.rint(vector).astype(np.int32)],True,(0,145,255),2,cv2.LINE_AA)
     cv2.imwrite(out+"_preview.png",overlay)
     paths=[]
-    for contour in cv2.findContours(clean,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)[0]:
-        if cv2.contourArea(contour)<3: continue
-        pts=contour[:,0,:].astype(float)
-        pts=cv2.approxPolyDP(pts.astype(np.float32).reshape(-1,1,2),.35,True)[:,0,:]
-        if len(pts)<3: continue
-        d="M "+" L ".join(f"{p[0]*pitch:.2f},{p[1]*pitch:.2f}" for p in pts)+" Z"
-        paths.append(d)
-    svg=f'<svg xmlns="http://www.w3.org/2000/svg" width="{width*pitch:.2f}mm" height="{height*pitch:.2f}mm" viewBox="0 0 {width*pitch:.2f} {height*pitch:.2f}">'+''.join(f'<path d="{d}" fill="#1766cf"/>' for d in paths)+'</svg>'
-    open(out+".svg","w").write(svg)
-    # Single watertight mesh from shared voxel volume, not overlapping solids.
-    # Axis order y,x,z; mirror x for physical imprint.
-    volume=np.zeros((height+4,width+4,15),np.uint8)
-    volume[2:-2,2:-2,1:8]=base[:,:,None]
-    volume[2:-2,2:-2,8:12]=clean[:,:,None]
-    verts,faces,_,_=marching_cubes(volume,level=.5,spacing=(pitch,pitch,pitch))
+    for pts in smooth(clean):
+        paths.append("M "+" L ".join(f"{px*pitch:.2f},{py*pitch:.2f}" for px,py in pts)+" Z")
+    base_pts=coords(base_poly.exterior.coords)
+    paths.append("M "+" L ".join(f"{px*pitch:.2f},{py*pitch:.2f}" for px,py in base_pts)+" Z")
+    svg=f'<svg xmlns="http://www.w3.org/2000/svg" width="{width*pitch:.2f}mm" height="{height*pitch:.2f}mm" viewBox="0 0 {width*pitch:.2f} {height*pitch:.2f}">'+''.join(f'<path d="{d}" fill="none" stroke="#1766cf" stroke-width=".5"/>' for d in paths)+'</svg>'
+    with open(out+".svg","w") as file:file.write(svg)
+    rim=np.zeros_like(base)
+    cv2.polylines(rim,[coords(base_poly.exterior.coords)],True,1,max(2,round(1.2/pitch)))
+    relief=np.maximum(clean,rim)
+    volume=np.zeros((height+4,width+4,16),np.uint8)
+    volume[2:-2,2:-2,1:9]=base[:,:,None]
+    volume[2:-2,2:-2,9:14]=relief[:,:,None]
+    verts,faces,_,_=marching_cubes(volume,.5,spacing=(pitch,pitch,pitch))
     mesh=trimesh.Trimesh(vertices=verts[:,[1,0,2]],faces=faces,process=True)
-    if not mesh.is_watertight or mesh.volume==0: raise ValueError("Non-watertight stamp")
+    if not mesh.is_watertight or mesh.volume<=0:raise ValueError("Invalid stamp STL")
     mesh.export(out+".stl")
     return dict(watertight=mesh.is_watertight,extents=mesh.extents.tolist(),features=len(paths),output=out)
 
