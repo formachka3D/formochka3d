@@ -566,33 +566,21 @@ PAGE = """
                 Для букв и цифр сохраняются внутренние отверстия и перемычки.
             </div>
 
-            <div class="upload-area">
-                <img
-                    class="example-image"
-                    src="/static/example_text.png"
-                    alt="Пример: буква или цифра → формочка → готовый результат"
-                >
-
-                <label
-                    for="textFile"
-                    class="main-button"
-                    id="textUploadLabel"
-                >
-                    Загрузить букву или цифру
-                </label>
-
-                <div class="file-note">
-                    JPG, PNG, WEBP
-                </div>
+            <div class="upload-area" id="textSelectionArea">
+                <p style="font-weight:700;margin:0 0 12px">Выберите букву или цифру</p>
+                <div id="textSymbolGrid" role="group" aria-label="Алфавит и цифры" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:18px"></div>
+                <label for="textFont" style="display:block;font-weight:700;margin-bottom:8px">Шрифт</label>
+                <select id="textFont" style="width:100%;padding:12px;border:1px solid #e4d4ca;border-radius:12px;font-size:16px">
+                    <option value="Arial">Обычный — Arial</option>
+                    <option value="Arial Black">Жирный — Arial Black</option>
+                    <option value="Georgia">Классический — Georgia</option>
+                    <option value="Trebuchet MS">Округлый — Trebuchet</option>
+                    <option value="Comic Sans MS">Весёлый — Comic Sans</option>
+                </select>
+                <div id="textGlyphPreview" aria-live="polite" style="height:135px;display:flex;align-items:center;justify-content:center;font-size:100px;overflow:hidden">А</div>
+                <button class="main-button" id="textUploadLabel" type="button">Создать контур</button>
             </div>
-
-            <input
-                id="textFile"
-                class="file-input"
-                type="file"
-                accept="image/*"
-            >
-
+            <input id="textFile" type="file" accept="image/png" style="display:none">
             <div
                 class="preview-box"
                 id="textPreviewBox"
@@ -849,6 +837,7 @@ PAGE = """
 
                 label.style.display =
                     "none";
+                document.getElementById("textSelectionArea").style.display="none";
             }
 
             catch (e) {
@@ -939,6 +928,53 @@ PAGE = """
         if (document.getElementById("imageModelStage").style.display === "block") window.dispatchEvent(new Event("formochka:build"));
     });
 
+    // Letter/number selector: generate a clean black silhouette locally.
+    const textGrid=document.getElementById("textSymbolGrid");
+    const textFont=document.getElementById("textFont");
+    const textGlyphPreview=document.getElementById("textGlyphPreview");
+    let chosenSymbol="А";
+    const symbols=Array.from("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ0123456789");
+    function updateGlyph(){
+        textGlyphPreview.textContent=chosenSymbol;
+        textGlyphPreview.style.fontFamily='"'+textFont.value+'",sans-serif';
+        for(const button of textGrid.children)button.setAttribute("aria-pressed",String(button.textContent===chosenSymbol));
+    }
+    for(const symbol of symbols){
+        const button=document.createElement("button");
+        button.type="button";button.textContent=symbol;
+        button.setAttribute("aria-label","Выбрать "+symbol);
+        button.style.cssText="min-width:0;height:40px;border:1px solid #e4d4ca;border-radius:9px;background:white;color:#332b28;font-weight:bold;cursor:pointer";
+        button.addEventListener("click",()=>{
+            chosenSymbol=symbol;updateGlyph();
+            for(const item of textGrid.children){const active=item.textContent===symbol;item.style.background=active?"#e8844e":"white";item.style.color=active?"white":"#332b28";}
+        });
+        textGrid.append(button);
+    }
+    textGrid.firstElementChild.click();
+    textFont.addEventListener("change",updateGlyph);
+    document.getElementById("textUploadLabel").addEventListener("click",async()=>{
+        const button=document.getElementById("textUploadLabel");
+        button.disabled=true;button.textContent="Подготавливаем символ...";
+        try{
+            const font=textFont.value,weight=font==="Arial Black"?"900":"normal";
+            await document.fonts.load(weight+' 360px "'+font+'"',chosenSymbol);
+            const canvas=document.createElement("canvas");canvas.width=canvas.height=600;
+            const ctx=canvas.getContext("2d");
+            ctx.fillStyle="white";ctx.fillRect(0,0,600,600);
+            ctx.fillStyle="black";ctx.textAlign="center";ctx.textBaseline="middle";
+            ctx.font=weight+' 400px "'+font+'",sans-serif';
+            ctx.fillText(chosenSymbol,300,300);
+            const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));
+            if(!blob)throw Error("Не удалось нарисовать символ");
+            const file=new File([blob],chosenSymbol+"_"+font.replaceAll(" ","_")+".png",{type:"image/png"});
+            const transfer=new DataTransfer();transfer.items.add(file);
+            document.getElementById("textFile").files=transfer.files;
+            document.getElementById("textFile").dispatchEvent(new Event("change"));
+        }catch(error){
+            const label=document.getElementById("textError");
+            label.textContent=error.message;label.style.display="block";
+        }finally{button.disabled=false;button.textContent="Создать контур";}
+    });
     const textFile =
         document.getElementById(
             "textFile"
@@ -1105,10 +1141,11 @@ PAGE = """
 
             label.style.display =
                 "block";
+            document.getElementById("textSelectionArea").style.display="block";
 
             label.textContent =
-                "Загрузить букву или цифру";
-            label.scrollIntoView({behavior: "smooth", block: "center"});
+                "Создать контур";
+            document.getElementById("textSelectionArea").scrollIntoView({behavior: "smooth", block: "center"});
         }
     );
 </script>
