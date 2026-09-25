@@ -6,6 +6,9 @@ import os
 import subprocess
 import sys
 import uuid
+import asyncio
+import shutil
+from starlette.background import BackgroundTask
 
 
 app = FastAPI()
@@ -1322,6 +1325,51 @@ async def prepare_image(
         )
 
 
+async def _create_stl(file: str, name: str, size: float, height: float, script: str):
+    if not _valid_upload_name(file):
+        return JSONResponse({"error": "Неверный файл"}, status_code=400)
+    if not (40 <= size <= 200 and 5 <= height <= 30):
+        return JSONResponse({"error": "Недопустимые размеры"}, status_code=400)
+    source = os.path.join("input", file)
+    if not os.path.isfile(source):
+        return JSONResponse({"error": "Исходное изображение не найдено"}, status_code=404)
+
+    # Each preview generation uses its own input/output basename.
+    # Overlapping slider requests must never overwrite each other's STL.
+    run_name = uuid.uuid4().hex
+    extension = os.path.splitext(file)[1]
+    run_input = os.path.join("input", run_name + extension)
+    output_path = os.path.join("output", run_name + ".stl")
+    preview_path = os.path.join("output", run_name + "_outline.png")
+    shutil.copyfile(source, run_input)
+    try:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, script, run_input, str(size), str(height),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+        if process.returncode != 0 or not os.path.isfile(output_path):
+            return JSONResponse({"error": "Не удалось создать STL"}, status_code=500)
+        # Read before cleanup: FileResponse streams only after the endpoint returns.
+        with open(output_path, "rb") as model:
+            payload = model.read()
+        from fastapi.responses import Response
+        safe_name = os.path.basename(name).replace('"', '') or "formochka"
+        from urllib.parse import quote
+        return Response(
+            content=payload,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(safe_name + ".stl")},
+        )
+    finally:
+        for path in (run_input, output_path, preview_path):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+
+
 @app.post("/create-image")
 async def create_image(
     file: str = Form(...),
@@ -1329,64 +1377,7 @@ async def create_image(
     size: float = Form(...),
     height: float = Form(...),
 ):
-    input_path = os.path.join(
-        "input",
-        os.path.basename(file),
-    )
-
-    if not os.path.exists(input_path):
-        return JSONResponse(
-            {
-                "error":
-                "Исходное изображение не найдено"
-            },
-            status_code=404,
-        )
-
-    try:
-        subprocess.run(
-            [
-                sys.executable,
-                "main.py",
-                input_path,
-                str(size),
-                str(height),
-            ],
-            check=True,
-        )
-
-    except subprocess.CalledProcessError:
-        return JSONResponse(
-            {
-                "error":
-                "Не удалось создать STL"
-            },
-            status_code=500,
-        )
-
-    generated_name = (
-        os.path.splitext(file)[0]
-        + ".stl"
-    )
-
-    output_path = os.path.join(
-        "output",
-        generated_name,
-    )
-
-    if not os.path.exists(output_path):
-        return JSONResponse(
-            {
-                "error":
-                "STL-файл не найден после создания"
-            },
-            status_code=500,
-        )
-
-    return FileResponse(
-        output_path,
-        filename=name + ".stl",
-    )
+    return await _create_stl(file, name, size, height, "main.py")
 
 
 @app.post("/prepare-text")
@@ -1431,64 +1422,7 @@ async def create_text(
     size: float = Form(...),
     height: float = Form(...),
 ):
-    input_path = os.path.join(
-        "input",
-        os.path.basename(file),
-    )
-
-    if not os.path.exists(input_path):
-        return JSONResponse(
-            {
-                "error":
-                "Исходное изображение не найдено"
-            },
-            status_code=404,
-        )
-
-    try:
-        subprocess.run(
-            [
-                sys.executable,
-                "main_text.py",
-                input_path,
-                str(size),
-                str(height),
-            ],
-            check=True,
-        )
-
-    except subprocess.CalledProcessError:
-        return JSONResponse(
-            {
-                "error":
-                "Не удалось создать STL"
-            },
-            status_code=500,
-        )
-
-    generated_name = (
-        os.path.splitext(file)[0]
-        + ".stl"
-    )
-
-    output_path = os.path.join(
-        "output",
-        generated_name,
-    )
-
-    if not os.path.exists(output_path):
-        return JSONResponse(
-            {
-                "error":
-                "STL-файл не найден после создания"
-            },
-            status_code=500,
-        )
-
-    return FileResponse(
-        output_path,
-        filename=name + ".stl",
-    )
+    return await _create_stl(file, name, size, height, "main_text.py")
 
 
 def _valid_upload_name(value: str) -> bool:
