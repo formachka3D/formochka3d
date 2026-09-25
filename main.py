@@ -279,7 +279,7 @@ rim = rim_outer.difference(
 wall_mesh = (
     trimesh.creation.extrude_polygon(
         wall,
-        height=TOTAL_HEIGHT
+        height=TOTAL_HEIGHT + RIM_HEIGHT
     )
 )
 
@@ -308,7 +308,7 @@ if round(
     mesh.extents[2],
     2
 ) != round(
-    TOTAL_HEIGHT,
+    TOTAL_HEIGHT + RIM_HEIGHT,
     2
 ):
 
