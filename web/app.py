@@ -1059,6 +1059,7 @@ PAGE = """
 
                 label.style.display =
                     "none";
+                document.getElementById("textSelectionArea").style.display="none";
             }
 
             catch (e) {
@@ -1066,7 +1067,7 @@ PAGE = """
                     "block";
 
                 label.textContent =
-                    "Загрузить букву или цифру";
+                    "Создать контур";
 
                 error.textContent =
                     e.message;
