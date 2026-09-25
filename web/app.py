@@ -966,13 +966,13 @@ PAGE = """
         button.disabled=true;button.textContent="Подготавливаем символ...";
         try{
             const font=textFont.value,weight=font==="Arial Black"?"900":"normal";
-            await document.fonts.load(weight+' 360px "'+font+'"',chosenSymbol);
-            const canvas=document.createElement("canvas");canvas.width=canvas.height=600;
+            await document.fonts.load(weight+' 900px "'+font+'"',chosenSymbol);
+            const canvas=document.createElement("canvas");canvas.width=canvas.height=1600;
             const ctx=canvas.getContext("2d");
-            ctx.fillStyle="white";ctx.fillRect(0,0,600,600);
+            ctx.fillStyle="white";ctx.fillRect(0,0,1600,1600);
             ctx.fillStyle="black";ctx.textAlign="center";ctx.textBaseline="middle";
-            ctx.font=weight+' 400px "'+font+'",sans-serif';
-            ctx.fillText(chosenSymbol,300,300);
+            ctx.font=weight+' 1050px "'+font+'",sans-serif';
+            ctx.fillText(chosenSymbol,800,800);
             const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));
             if(!blob)throw Error("Не удалось нарисовать символ");
             const file=new File([blob],chosenSymbol+"_"+font.replaceAll(" ","_")+".png",{type:"image/png"});
