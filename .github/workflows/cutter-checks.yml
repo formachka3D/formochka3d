@@ -1,0 +1,35 @@
+name: Cutter regression checks
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  syntax-and-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check Python syntax and UI wiring
+        run: |
+          python -m py_compile main.py main_text.py web/app.py
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          image = Path("main.py").read_text()
+          text = Path("main_text.py").read_text()
+          page = Path("web/app.py").read_text()
+          assert "height=TOTAL_HEIGHT + RIM_HEIGHT" in image
+          assert "TOTAL_HEIGHT + RIM_HEIGHT" in text
+          for marker in ("imageConfirmContour", "imageModelViewer", "formochka:build", "formochka:clear", "STLLoader", "OrbitControls", "window.formochkaSTL"):
+              assert marker in page, marker
+          scripts = re.findall(r'<script(?: type="module")?>(.*?)</script>', page, re.S)
+          assert len(scripts) >= 2, len(scripts)
+          for i, script in enumerate(scripts):
+              Path(f"/tmp/formochka_script_{i}.mjs").write_text(script)
+          PY
+          for script in /tmp/formochka_script_*.mjs; do node --check "$script"; done
