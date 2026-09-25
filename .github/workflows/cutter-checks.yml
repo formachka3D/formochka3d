@@ -61,7 +61,7 @@ jobs:
           canvas.save("input/ring.png")
           # The image generator's rembg is stubbed ONLY in CI:
           # real production uses its installed background-removal model.
-          Path("/tmp/rembg.py").write_text("def remove(data):\\n    return data\\n")
+          Path("/tmp/rembg.py").write_text("def remove(data):\n    return data\n")
           rgba = Image.new("RGBA",(240,240),(0,0,0,0))
           draw = ImageDraw.Draw(rgba)
           draw.ellipse((24,24,216,216),fill=(0,0,0,255))
