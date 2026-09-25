@@ -456,6 +456,16 @@ PAGE = """
                 type="file"
                 accept="image/*"
             >
+            <div id="imageOutputChoice" style="display:none;margin:22px 0;padding:22px;border:2px solid #e4d4ca;border-radius:20px;background:#fffaf6">
+                <h3 style="margin:0 0 8px">Что будем создавать?</h3>
+                <p style="color:#77675f;margin:0 0 18px">Выберите один из двух вариантов.</p>
+                <label style="display:block;padding:16px;border:1px solid #e4d4ca;border-radius:12px;margin-bottom:10px;cursor:pointer"><input type="radio" name="imageOutputMode" value="cutter" checked> <b>Просто формочка</b><br><span style="font-size:14px;color:#77675f">Резак по внешнему контуру рисунка.</span></label>
+                <label style="display:block;padding:16px;border:1px solid #e4d4ca;border-radius:12px;margin-bottom:18px;cursor:pointer"><input type="radio" name="imageOutputMode" value="stamp"> <b>Формочка + оттиск</b><br><span style="font-size:14px;color:#77675f">Резак и отдельный штамп с деталями изображения.</span></label>
+                <button class="main-button" type="button" id="imageOutputContinue">Создать контур</button>
+                <p id="imageStampNotice" style="display:none;color:#77675f;font-size:14px;margin:14px 0 0">Для оттиска потребуется отдельное подтверждение внутренних линий. Генерация оттиска ещё разрабатывается.</p>
+            </div>
+
+
 
             <div
                 class="preview-box"
@@ -468,16 +478,12 @@ PAGE = """
                 >
             </div>
 
-            <button class="create-button" id="imageConfirmContour" type="button" style="display:none">Подтвердить контур</button>
-            <div id="imageOutputChoice" style="display:none;margin:22px 0;padding:22px;border:2px solid #e4d4ca;border-radius:20px;background:#fffaf6">
-                <h3 style="margin:0 0 8px">Что будем создавать?</h3>
-                <p style="color:#77675f;margin:0 0 18px">Выберите один из двух вариантов.</p>
-                <label style="display:block;padding:16px;border:1px solid #e4d4ca;border-radius:12px;margin-bottom:10px;cursor:pointer"><input type="radio" name="imageOutputMode" value="cutter" checked> <b>Просто формочка</b><br><span style="font-size:14px;color:#77675f">Резак по внешнему контуру рисунка.</span></label>
-                <label style="display:block;padding:16px;border:1px solid #e4d4ca;border-radius:12px;margin-bottom:18px;cursor:pointer"><input type="radio" name="imageOutputMode" value="stamp"> <b>Формочка + оттиск</b><br><span style="font-size:14px;color:#77675f">Резак и отдельный штамп с деталями изображения.</span></label>
-                <button class="main-button" type="button" id="imageOutputContinue">Продолжить</button>
-                <p id="imageStampNotice" style="display:none;color:#77675f;font-size:14px;margin:14px 0 0">Для оттиска потребуется отдельное подтверждение внутренних линий. Генерация оттиска ещё разрабатывается.</p>
+            <div id="imageStampPreviewBox" class="preview-box" style="display:none">
+                <h3>Проверьте внутренние линии оттиска</h3>
+                <img id="imageStampPreview" alt="Предварительные линии оттиска" style="max-width:100%">
+                <p style="font-size:14px;color:#77675f">Предварительный просмотр. STL оттиска пока не формируется.</p>
             </div>
-
+            <button class="create-button" id="imageConfirmContour" type="button" style="display:none">Подтвердить контур</button>
             <section id="imageModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем.</p><div id="imageModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div><p>Настройте размер и высоту под моделью.</p>            <div
                 class="settings-box"
                 id="imageSettings"
@@ -769,26 +775,25 @@ PAGE = """
 
     imageFile.addEventListener(
         "change",
-        async function () {
+        function () {
 
             if (!imageFile.files.length) {
                 return;
             }
 
-            const label =
-                document.getElementById(
-                    "imageUploadLabel"
-                );
+            document.getElementById("imageOutputChoice").style.display="block";
+            document.getElementById("imageOutputChoice").scrollIntoView({behavior:"smooth",block:"center"});
+        }
+    );
 
-            const error =
-                document.getElementById(
-                    "imageError"
-                );
-
-            error.style.display = "none";
-            label.textContent =
-                "Обрабатываем изображение...";
-
+    document.getElementById("imageOutputContinue").addEventListener("click", async function () {
+            if (!imageFile.files.length) return;
+            const label=document.getElementById("imageUploadLabel");
+            const error=document.getElementById("imageError");
+            const mode=document.querySelector('input[name="imageOutputMode"]:checked').value;
+            error.style.display="none";
+            this.disabled=true;
+            this.textContent="Обрабатываем изображение...";
             const formData =
                 new FormData();
 
@@ -796,6 +801,7 @@ PAGE = """
                 "file",
                 imageFile.files[0]
             );
+            formData.append("mode",mode);
 
             try {
                 const response =
@@ -834,6 +840,9 @@ PAGE = """
                     "block";
 
                 document.getElementById("imageConfirmContour").style.display = "block";
+                document.getElementById("imageOutputChoice").style.display="none";
+                document.getElementById("imageStampPreviewBox").style.display=mode==="stamp"?"block":"none";
+                if(mode==="stamp")document.getElementById("imageStampPreview").src="/preview-stamp?file="+encodeURIComponent(currentImageFile)+"&t="+Date.now();
                 document.getElementById("imageSettings").style.display = "none";
                 document.getElementById("imageModelStage").style.display = "none";
                 window.dispatchEvent(new Event("formochka:clear"));
@@ -846,7 +855,7 @@ PAGE = """
 
                 label.style.display =
                     "none";
-                document.getElementById("textSelectionArea").style.display="none";
+
             }
 
             catch (e) {
@@ -861,6 +870,9 @@ PAGE = """
 
                 error.style.display =
                     "block";
+            } finally {
+                this.disabled=false;
+                this.textContent="Создать контур";
             }
         }
     );
@@ -893,6 +905,8 @@ PAGE = """
             document.getElementById("imageConfirmContour").style.display = "none";
             document.getElementById("imageOutputChoice").style.display = "none";
             document.getElementById("imageStampNotice").style.display = "none";
+            document.getElementById("imageOutputContinue").style.display = "block";
+            document.getElementById("imageStampPreviewBox").style.display = "none";
             document.getElementById("imageSettings").style.display = "none";
             document.getElementById("imageModelStage").style.display = "none";
             window.dispatchEvent(new Event("formochka:clear"));
@@ -928,20 +942,17 @@ PAGE = """
 
 
     document.getElementById("imageConfirmContour").addEventListener("click", function () {
-        this.style.display = "none";
-        document.getElementById("imagePreviewBox").style.display = "none";
-        document.getElementById("imageOutputChoice").style.display = "block";
-        document.getElementById("imageOutputChoice").scrollIntoView({behavior:"smooth",block:"center"});
-    });
-    document.getElementById("imageOutputContinue").addEventListener("click", function () {
-        if (document.querySelector('input[name="imageOutputMode"]:checked').value === "stamp") {
-            document.getElementById("imageStampNotice").style.display = "block";
-            return;
+        this.style.display="none";
+        document.getElementById("imagePreviewBox").style.display="none";
+        document.getElementById("imageStampPreviewBox").style.display="none";
+        document.getElementById("imageSettings").style.display="block";
+        document.getElementById("imageModelStage").style.display="block";
+        document.getElementById("imageCreateButton").style.display="block";
+        if(document.querySelector('input[name="imageOutputMode"]:checked').value==="stamp"){
+            document.getElementById("imageStampNotice").style.display="block";
+            document.getElementById("imageOutputChoice").style.display="block";
+            document.getElementById("imageOutputContinue").style.display="none";
         }
-        document.getElementById("imageOutputChoice").style.display = "none";
-        document.getElementById("imageSettings").style.display = "block";
-        document.getElementById("imageModelStage").style.display = "block";
-        document.getElementById("imageCreateButton").style.display = "block";
         window.dispatchEvent(new Event("formochka:build"));
     });
     for (const slider of [imageSize,imageHeight]) slider.addEventListener("input",()=>{
@@ -1287,9 +1298,37 @@ async def save_upload(file):
     return unique_name, name or "formochka", path
 
 
+def _prepare_stamp_preview(input_path: str, stored_file: str):
+    """Detect interior image lines from the original upload."""
+    import cv2
+    import numpy as np
+    image = cv2.imread(input_path, cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError("Не удалось прочитать изображение")
+    if len(image.shape) == 3 and image.shape[2] == 4:
+        alpha = image[:, :, 3:4].astype(np.float32) / 255
+        image = (image[:, :, :3].astype(np.float32) * alpha + 255 * (1-alpha)).astype(np.uint8)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+    if max(gray.shape) > 1400:
+        scale = 1400/max(gray.shape)
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    edges = cv2.Canny(cv2.GaussianBlur(gray, (3,3), 0), 65, 145)
+    _, silhouette = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    outer = max(cv2.findContours(silhouette, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0], key=cv2.contourArea, default=None)
+    if outer is None:
+        raise ValueError("Не найден силуэт")
+    mask = np.zeros_like(gray)
+    cv2.drawContours(mask, [outer], -1, 255, -1)
+    mask = cv2.erode(mask, np.ones((9,9), np.uint8))
+    preview = np.full_like(gray, 255)
+    preview[cv2.bitwise_and(edges, mask) > 0] = 0
+    cv2.imwrite(os.path.join("output", os.path.splitext(stored_file)[0]+"_stamp_preview.png"), preview)
+
+
 @app.post("/prepare-image")
 async def prepare_image(
     file: UploadFile = File(...),
+    mode: str = Form("cutter"),
 ):
     try:
         stored_file, original_name, input_path = (
@@ -1306,6 +1345,11 @@ async def prepare_image(
             ],
             check=True,
         )
+
+        if mode not in {"cutter", "stamp"}:
+            raise HTTPException(status_code=400, detail="Неверный режим")
+        if mode == "stamp":
+            _prepare_stamp_preview(input_path, stored_file)
 
         return {
             "file": stored_file,
@@ -1425,6 +1469,16 @@ async def create_text(
 def _valid_upload_name(value: str) -> bool:
     stem, ext = os.path.splitext(value)
     return len(stem) == 32 and all(ch in "0123456789abcdef" for ch in stem) and ext.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@app.get("/preview-stamp")
+def preview_stamp(file: str):
+    if not _valid_upload_name(file):
+        return JSONResponse({"error":"Неверный файл"},status_code=400)
+    path=os.path.join("output",os.path.splitext(file)[0]+"_stamp_preview.png")
+    if not os.path.isfile(path):
+        return JSONResponse({"error":"Предпросмотр оттиска не создан"},status_code=404)
+    return FileResponse(path)
 
 
 @app.get("/preview-image")
