@@ -68,7 +68,7 @@ def generate(path, size=100, out=None):
         x0,y0,cw,ch,area=stats[i]
         physical_area=area*pitch*pitch
         solidity=area/max(1,cw*ch)
-        if 10<=physical_area<=300 and solidity>.25:
+        if 30<=physical_area<=300 and solidity>.25:
             region=(labels==i).astype(np.uint8)
             contours,_=cv2.findContours(region,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(strokes,contours,-1,1,max(1,round(1.2/pitch)))
