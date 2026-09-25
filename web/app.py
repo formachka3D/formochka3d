@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -8,7 +8,6 @@ import sys
 import uuid
 import asyncio
 import shutil
-from starlette.background import BackgroundTask
 
 
 app = FastAPI()
@@ -1257,37 +1256,33 @@ def home():
 
 
 async def save_upload(file):
-    original_name = os.path.basename(
-        file.filename
-    )
+    original_name = os.path.basename(file.filename or "")
+    name, extension = os.path.splitext(original_name)
+    extension = extension.lower()
+    if extension not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="Поддерживаются JPG, PNG и WEBP")
 
-    name, extension = os.path.splitext(
-        original_name
-    )
-
-    unique_name = (
-        uuid.uuid4().hex
-        + extension.lower()
-    )
-
-    path = os.path.join(
-        "input",
-        unique_name
-    )
-
-    with open(
-        path,
-        "wb"
-    ) as f:
-        f.write(
-            await file.read()
-        )
-
-    return (
-        unique_name,
-        name,
-        path,
-    )
+    unique_name = uuid.uuid4().hex + extension
+    path = os.path.join("input", unique_name)
+    max_bytes = 10 * 1024 * 1024
+    total = 0
+    try:
+        with open(path, "wb") as destination:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise HTTPException(status_code=413, detail="Изображение больше 10 МБ")
+                destination.write(chunk)
+        if total == 0:
+            raise HTTPException(status_code=400, detail="Пустое изображение")
+    except BaseException:
+        if os.path.exists(path):
+            os.remove(path)
+        raise
+    return unique_name, name or "formochka", path
 
 
 @app.post("/prepare-image")
