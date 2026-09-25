@@ -1223,7 +1223,7 @@ async function build(v){
  if(!response.ok){const e=await response.json().catch(()=>({}));throw Error(e.error||"Ошибка генерации");}
  const blob=await response.blob();if(v!==version)return;
  const geometry=new STLLoader().parse(await blob.arrayBuffer());if(v!==version){geometry.dispose();return;}
- clear();geometry.computeVertexNormals();geometry.computeBoundingBox();geometry.center();
+ clear();geometry.computeVertexNormals();geometry.computeBoundingBox();const cutterCenter=geometry.boundingBox.getCenter(new THREE.Vector3());geometry.center();
  const scene=new THREE.Scene();scene.background=new THREE.Color(0xfff7f2);
  const material=new THREE.MeshStandardMaterial({color:0xd58d6d,side:THREE.DoubleSide,roughness:.7});
  const mesh=new THREE.Mesh(geometry,material);mesh.rotation.x=-Math.PI/2;scene.add(mesh);
@@ -1243,10 +1243,10 @@ async function build(v){
    if(!sr.ok)throw Error("Формочка готова, но не удалось создать оттиск");
    const sb=await sr.blob();if(v!==version)return;
    const sg=new STLLoader().parse(await sb.arrayBuffer());if(v!==version){sg.dispose();return;}
-   sg.computeVertexNormals();sg.computeBoundingBox();sg.center();
+   sg.computeVertexNormals();sg.computeBoundingBox();const stampCenter=sg.boundingBox.getCenter(new THREE.Vector3());sg.center();
    window.formochkaStampSTL=sb;
    const stampMaterial=new THREE.MeshStandardMaterial({color:0xe6b99e,side:THREE.DoubleSide,roughness:.72});
-   const stampMesh=new THREE.Mesh(sg,stampMaterial);stampMesh.rotation.x=-Math.PI/2;
+   const stampMesh=new THREE.Mesh(sg,stampMaterial);stampMesh.rotation.x=-Math.PI/2;stampMesh.position.set(stampCenter.x-cutterCenter.x,stampCenter.z-cutterCenter.z,-(stampCenter.y-cutterCenter.y));
    scene.add(stampMesh);view.stampGeometry=sg;view.stampMaterial=stampMaterial;
    toggle.style.display="none";
    document.getElementById("stampDownload").style.display="block";
