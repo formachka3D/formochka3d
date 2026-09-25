@@ -14,27 +14,28 @@ def generate(path, size=100, out=None):
     os.makedirs(os.path.dirname(out) or ".",exist_ok=True)
     original=cv2.imread(path,cv2.IMREAD_UNCHANGED)
     if original is None: raise ValueError("Cannot read image")
-    raw=open(path,"rb").read()
-    rgba=cv2.imdecode(np.frombuffer(remove(raw),np.uint8),cv2.IMREAD_UNCHANGED)
-    if rgba is None or rgba.ndim!=3 or rgba.shape[2]!=4: raise ValueError("No silhouette")
-    alpha=rgba[:,:,3]
-    fg=(alpha>128).astype(np.uint8)
-    contours,_=cv2.findContours(fg,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
-    if not contours: raise ValueError("No outer contour")
-    outer=max(contours,key=cv2.contourArea)
-    silhouette=np.zeros_like(fg);cv2.drawContours(silhouette,[outer],-1,1,-1)
-    x,y,w,h=cv2.boundingRect(outer)
+    # Exact vector contour exported by the existing cutter generator.
+    # The stamp must never call rembg or detect its own outer silhouette.
+    contour_path=os.path.join("output",name+"_outline.npy")
+    if not os.path.isfile(contour_path):
+        raise ValueError("Missing cutter contour: prepare the cutter first")
+    vector=np.load(contour_path).astype(np.float32)
+    if len(vector)<3: raise ValueError("Empty cutter contour")
+    h0,w0=original.shape[:2]
+    # main.py flips the source horizontally before contour extraction.
+    bgr=original[:,:,:3] if original.ndim==3 else cv2.cvtColor(original,cv2.COLOR_GRAY2BGR)
+    bgr=cv2.flip(bgr,1)
+    silhouette=np.zeros((h0,w0),np.uint8)
+    cv2.fillPoly(silhouette,[np.rint(vector).astype(np.int32)],1)
+    x,y,w,h=cv2.boundingRect(vector.reshape(-1,1,2))
     if min(w,h)<20: raise ValueError("Silhouette too small")
+    # Identical physical scale to the cutter's TARGET_SIZE / max(w,h).
     mm_per_px=float(size)/max(w,h)
-    # Downsample to 0.30 mm voxels to bound resource use.
     pitch=.30
     width=max(2,int(np.ceil(w*mm_per_px/pitch)))
     height=max(2,int(np.ceil(h*mm_per_px/pitch)))
     target=(width,height)
     obj=cv2.resize(silhouette[y:y+h,x:x+w],target,interpolation=cv2.INTER_NEAREST)
-    bgr=original[:,:,:3] if original.ndim==3 else cv2.cvtColor(original,cv2.COLOR_GRAY2BGR)
-    if bgr.shape[:2]!=fg.shape:
-        bgr=cv2.resize(bgr,(fg.shape[1],fg.shape[0]))
     roi=cv2.resize(bgr[y:y+h,x:x+w],target,interpolation=cv2.INTER_AREA)
     # Segment coherent material colors, not local shadows or image texture.
     lab=cv2.cvtColor(roi,cv2.COLOR_BGR2LAB)
@@ -79,12 +80,16 @@ def generate(path, size=100, out=None):
     base=cv2.erode(obj,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(2*inset_px+1,)*2))
     if base.sum()<100: raise ValueError("Base disappeared")
     clean=cv2.bitwise_and(clean,base)
-    # Preserve original orientation in preview; stamp is mirrored for imprint.
+    # One combined preview: the EXACT original cutter contour plus stamp details.
     mask=(255-clean*255).astype(np.uint8)
     cv2.imwrite(out+"_mask.png",mask)
-    overlay=cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
-    cv2.drawContours(overlay,cv2.findContours(base,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)[0],-1,(0,150,255),2)
-    overlay[clean>0]=(255,120,20)
+    overlay=np.full((h0,w0,3),255,np.uint8)
+    # Preview at original pixel resolution, with shared cutter vector unchanged.
+    full_clean=np.zeros((h0,w0),np.uint8)
+    scaled=cv2.resize(clean,(w,h),interpolation=cv2.INTER_NEAREST)
+    full_clean[y:y+h,x:x+w]=scaled
+    overlay[full_clean>0]=(240,95,25)
+    cv2.polylines(overlay,[np.rint(vector).astype(np.int32)],True,(0,145,255),2,cv2.LINE_AA)
     cv2.imwrite(out+"_preview.png",overlay)
     paths=[]
     for contour in cv2.findContours(clean,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)[0]:
@@ -99,8 +104,8 @@ def generate(path, size=100, out=None):
     # Single watertight mesh from shared voxel volume, not overlapping solids.
     # Axis order y,x,z; mirror x for physical imprint.
     volume=np.zeros((height+4,width+4,15),np.uint8)
-    volume[2:-2,2:-2,1:8]=base[:,::-1,None]
-    volume[2:-2,2:-2,8:12]=clean[:,::-1,None]
+    volume[2:-2,2:-2,1:8]=base[:,:,None]
+    volume[2:-2,2:-2,8:12]=clean[:,:,None]
     verts,faces,_,_=marching_cubes(volume,level=.5,spacing=(pitch,pitch,pitch))
     mesh=trimesh.Trimesh(vertices=verts[:,[1,0,2]],faces=faces,process=True)
     if not mesh.is_watertight or mesh.volume==0: raise ValueError("Non-watertight stamp")
