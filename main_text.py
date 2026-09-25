@@ -646,7 +646,7 @@ def extrude_geometry(
 
 wall_mesh = extrude_geometry(
     wall,
-    TOTAL_HEIGHT
+    TOTAL_HEIGHT + RIM_HEIGHT
 )
 
 
@@ -672,7 +672,7 @@ if round(
     mesh.extents[2],
     2
 ) != round(
-    TOTAL_HEIGHT,
+    TOTAL_HEIGHT + RIM_HEIGHT,
     2
 ):
 
