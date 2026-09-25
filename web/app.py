@@ -473,7 +473,7 @@ PAGE = """
 
             <button class="create-button" id="imageConfirmContour" type="button" style="display:none">Подтвердить контур</button>
 
-            <section id="imageModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем. Настройте размер и высоту под моделью.</p><div id="imageModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div>            <div
+            <section id="imageModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем.</p><div id="imageModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div><p>Настройте размер и высоту под моделью.</p>            <div
                 class="settings-box"
                 id="imageSettings"
             >
@@ -605,7 +605,7 @@ PAGE = """
             </div>
 
             <button class="create-button" id="textConfirmContour" type="button" style="display:none">Подтвердить контур</button>
-            <section id="textModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем.</p><div id="textModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div>            <div
+            <section id="textModelStage" style="display:none; margin-top:22px; text-align:center"><h3>Ваша формочка в 3D</h3><p>Вращайте модель мышью или пальцем.</p><div id="textModelViewer" style="height:320px; border:1px solid #eee5df; border-radius:18px; overflow:hidden"></div><p>Настройте размер и высоту под моделью.</p>            <div
                 class="settings-box"
                 id="textSettings"
             >
@@ -662,7 +662,8 @@ PAGE = """
                 </div>
             </div>
 
-<p id="textModelMessage" role="status">Подготавливаем модель...</p><button class="create-button" id="textCreateButton" type="button" disabled>Скачать STL</button><button type="button" disabled style="padding:16px; width:100%; border-radius:14px; opacity:.65">Заказать готовую формочку — скоро</button></section>
+<p id="textModelMessage" role="status">Подготавливаем модель...</p><button type="button" disabled style="padding:16px; width:100%; border-radius:14px; opacity:.65">Заказать готовую формочку — скоро</button></section>
+            <button class="create-button" id="textCreateButton" type="button" disabled>Скачать STL</button>
             <div
                 class="status"
                 id="textStatus"
