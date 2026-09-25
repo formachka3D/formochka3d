@@ -300,7 +300,7 @@ for hole in hole_contours:
 
 
 cv2.imwrite(
-    "output/text_outline.png",
+    f"output/{os.path.splitext(os.path.basename(input_file))[0]}_outline.png",
     preview
 )
 
