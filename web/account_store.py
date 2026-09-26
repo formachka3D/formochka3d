@@ -79,9 +79,23 @@ class AccountStore:
                     expires_at INTEGER NOT NULL,
                     created_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS loyalty_events (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    event_key TEXT NOT NULL,
+                    delta INTEGER NOT NULL CHECK(delta != 0),
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(user_id,event_key)
+                );
+                CREATE INDEX IF NOT EXISTS ix_loyalty_user ON loyalty_events(user_id);
                 CREATE INDEX IF NOT EXISTS ix_tokens_user ON one_time_tokens(user_id);
                 CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
             """)
+            # Backfill the signup reward for accounts verified before points launched.
+            # The event's per-user unique key prevents repeat rewards on restarts.
+            db.execute("""INSERT OR IGNORE INTO loyalty_events(user_id,event_key,delta,created_at)
+                SELECT id,'verified_signup',10,COALESCE(verified_at,created_at)
+                FROM users WHERE verified_at IS NOT NULL AND disabled_at IS NULL""")
 
     def register(self, email: str, password: str) -> int:
         email = normalize_email(email)
@@ -163,10 +177,18 @@ class AccountStore:
             db.execute("UPDATE users SET verified_at=COALESCE(verified_at,?) WHERE id=?",
                        (now, user_id))
             db.execute("DELETE FROM one_time_tokens WHERE token_hash=?", (digest,))
+            # Welcome gift is granted exactly once, only after email verification.
+            db.execute("INSERT OR IGNORE INTO loyalty_events(user_id,event_key,delta,created_at) VALUES(?,?,?,?)",
+                       (user_id, "verified_signup", 10, now))
             session = secrets.token_urlsafe(32)
             db.execute("INSERT INTO sessions VALUES (?,?,?,?)",
                        (hashlib.sha256(session.encode()).hexdigest(), user_id, now+14*86400, now))
         return session
+
+    def points_balance(self, user_id: int) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COALESCE(SUM(delta),0) FROM loyalty_events WHERE user_id=?", (user_id,)).fetchone()
+            return int(row[0])
 
     def create_session(self, user_id: int, ttl: int = 14 * 86400) -> str:
         token = secrets.token_urlsafe(32)
