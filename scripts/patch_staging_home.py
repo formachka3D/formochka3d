@@ -66,6 +66,13 @@ source = source.replace("</style>", styles + "\n    </style>", 1)
 source = source.replace(
     '            <a href="/account/">Личный кабинет</a>',
     '            <a id="account-entry" href="/account/">Войти</a>', 1)
+# Keep the top bar intentionally minimal: logo on the left, login on the right.
+nav_start = source.index('<nav class="topnav">')
+nav_end = source.index('</nav>', nav_start) + len('</nav>')
+source = source[:nav_start] + ('''<nav class="topnav">
+            <a id="account-entry" href="/account/">Войти</a>
+        </nav>''') + source[nav_end:]
+
 landing = """
     <section class="service-directory" aria-label="Наши сервисы">
         <h1>Что создадим сегодня? 🍓</h1>
