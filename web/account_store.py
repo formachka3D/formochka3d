@@ -10,9 +10,7 @@ import sqlite3
 import time
 
 EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}$")
-SCRYPT_N = 1 << 15
-SCRYPT_R = 8
-SCRYPT_P = 1
+PBKDF2_ITERATIONS = 600_000
 
 
 def normalize_email(email: str) -> str:
@@ -26,17 +24,16 @@ def hash_password(password: str) -> str:
     if not 12 <= len(password) <= 128:
         raise ValueError("Пароль должен содержать от 12 до 128 символов")
     salt = secrets.token_bytes(16)
-    derived = hashlib.scrypt(password.encode(), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=32)
-    return "scrypt$32768$8$1$" + salt.hex() + "$" + derived.hex()
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS, dklen=32)
+    return "pbkdf2_sha256$600000$" + salt.hex() + "$" + derived.hex()
 
 
 def check_password(password: str, encoded: str) -> bool:
     try:
-        algorithm, n, r, p, salt, digest = encoded.split("$")
-        if (algorithm, n, r, p) != ("scrypt", "32768", "8", "1"):
+        algorithm, iterations, salt, digest = encoded.split("$")
+        if (algorithm, iterations) != ("pbkdf2_sha256", "600000"):
             return False
-        derived = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=SCRYPT_N,
-                                 r=SCRYPT_R, p=SCRYPT_P, dklen=32)
+        derived = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), PBKDF2_ITERATIONS, dklen=32)
         return hmac.compare_digest(derived, bytes.fromhex(digest))
     except (ValueError, TypeError, UnicodeError):
         return False
