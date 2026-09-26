@@ -73,6 +73,41 @@ def test_preview_and_stl_share_final_mask():
             os.chdir(previous)
 
 
+def test_size_reuses_prepared_details():
+    # Preparation and STL generation must not independently re-detect details.
+    with tempfile.TemporaryDirectory() as directory:
+        previous = os.getcwd()
+        os.chdir(directory)
+        try:
+            os.makedirs("input")
+            os.makedirs("output")
+            source = np.full((160,160,3), 220, np.uint8)
+            cv2.circle(source,(45,45),12,(0,0,0),-1)
+            cv2.imwrite("input/cached.png",source)
+            contour=np.array([[5,5],[155,5],[155,155],[5,155],
+                              [5,5],[5,5],[5,5],[5,5]],np.float32)
+            np.save("output/cached_outline.npy",contour)
+            # Deliberately different from the source so fresh segmentation
+            # cannot accidentally satisfy the cached-mask assertion.
+            canonical=np.full((500,500),255,np.uint8)
+            cv2.circle(canonical,(250,250),65,0,-1)
+            cv2.imwrite("output/cached_stamp_mask.png",canonical)
+            result=generate("input/cached.png",40,"output/cached_resized")
+            mask=cv2.imread("output/cached_resized_mask.png",0)==0
+            resized=cv2.resize((canonical==0).astype(np.uint8),
+                               (mask.shape[1],mask.shape[0]),
+                               interpolation=cv2.INTER_NEAREST).astype(bool)
+            assert mask.sum()>100
+            assert not np.any(mask & ~resized)
+            assert np.logical_and(mask,resized).sum()/resized.sum()>.90
+            preview=cv2.imread("output/cached_resized_preview.png")
+            orange=(preview[:,:,0]==225)&(preview[:,:,1]==93)&(preview[:,:,2]==20)
+            assert np.array_equal(mask,orange)
+            assert result["watertight"]
+        finally:
+            os.chdir(previous)
+
+
 if __name__ == "__main__":
     test_small_hole_cleanup()
     test_preview_and_stl_share_final_mask()
