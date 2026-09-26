@@ -58,7 +58,7 @@ def test_preview_and_stl_share_final_mask():
             # The web download must scale the cached preview-matching STL,
             # not regenerate features at each slider setting.
             import trimesh
-            cached = trimesh.load(f"output/{name}_stamp.stl", force="mesh", process=False)
+            cached = trimesh.load(f"output/{name}_stamp.stl", force="mesh", process=True)
             assert cached.is_watertight and cached.volume > 0
             original = cached.extents.copy()
             for requested_size in (40, 100, 200):
