@@ -43,6 +43,17 @@ styles = """
         .header-user {display:flex;align-items:center;gap:7px;background:#fff0e8;
           border:1px solid #f3dacf;border-radius:22px;padding:6px 12px!important;}
         #account-entry {white-space:nowrap;}
+        .ginger-backdrop {position:fixed;inset:0;z-index:10000;background:#3224289c;display:none;
+          align-items:center;justify-content:center;padding:16px;}
+        .ginger-backdrop[aria-hidden="false"] {display:flex;}
+        .ginger-modal {position:relative;max-width:430px;width:100%;background:#fff9f7;border:2px solid #f2bfd2;
+          border-radius:30px;padding:33px 25px;text-align:center;box-shadow:0 26px 60px #3d202940;}
+        .ginger-modal h2 {color:#964c69;font-size:29px;margin:6px 0 12px;}
+        .ginger-modal p {color:#76515d;line-height:1.5;}
+        .ginger-modal .ginger-cta {display:inline-block;margin-top:13px;padding:13px 22px;
+          background:#ce6389;color:white;text-decoration:none;border-radius:15px;font-weight:700;}
+        .ginger-modal .ginger-close {position:absolute;top:13px;right:16px;border:0;background:transparent;
+          color:#87576b;font-size:27px;cursor:pointer;}
         @media (max-width:760px) {
             .service-grid {grid-template-columns:1fr;gap:12px}
             .service-tile {min-height:130px;padding:19px}
@@ -83,13 +94,37 @@ landing = """
 """
 source = source.replace('    <div class="modes" id="generator">', landing +
                         '    <div class="modes" id="generator">', 1)
+welcome = """
+<div id="ginger-backdrop" class="ginger-backdrop" aria-hidden="true">
+  <section class="ginger-modal" role="dialog" aria-modal="true" aria-labelledby="ginger-title">
+    <button type="button" id="ginger-close" class="ginger-close" aria-label="Закрыть">×</button>
+    <div aria-hidden="true" style="font-size:60px">🍓🍪💗</div>
+    <h2 id="ginger-title">Получи 10 пряничков!</h2>
+    <p>Зарегистрируйся, подтверди почту и получи приветственные баллы.
+       В будущем их можно будет обменивать на скидки и приятные подарки!</p>
+    <a class="ginger-cta" href="/account/?mode=register">Забрать прянички</a>
+    <p style="font-size:13px">Программа наград скоро появится.</p>
+  </section>
+</div>
+"""
+source = source.replace("</body>", welcome + "\n</body>", 1)
 header_js = """
 <script>
 /* Display a logged-in member's own name or chosen avatar without showing admin links. */
 fetch('/account/api/me',{credentials:'same-origin',cache:'no-store'})
   .then(r=>r.ok?r.json():null)
   .then(me=>{
-      if(!me||!me.authenticated)return;
+      if(!me||!me.authenticated){
+          try {
+            if(!sessionStorage.getItem('f3d-ginger-welcome-v1')) {
+              const dialog=document.getElementById('ginger-backdrop');
+              dialog.setAttribute('aria-hidden','false');
+              sessionStorage.setItem('f3d-ginger-welcome-v1','1');
+              document.getElementById('ginger-close').focus();
+            }
+          }catch(e){} // Browser privacy modes should not break the site.
+          return;
+      }
       const a=document.getElementById('account-entry');
       if(!a)return;
       a.classList.add('header-user');
@@ -106,6 +141,14 @@ fetch('/account/api/me',{credentials:'same-origin',cache:'no-store'})
       const name=document.createElement('span');name.textContent=me.name||'Кабинет';
       a.append(name);
   }).catch(()=>{});
+function closeGinger(){document.getElementById('ginger-backdrop').setAttribute('aria-hidden','true')}
+document.getElementById('ginger-close').addEventListener('click',closeGinger);
+document.getElementById('ginger-backdrop').addEventListener('click',e=>{
+  if(e.target.id==='ginger-backdrop')closeGinger();
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&document.getElementById('ginger-backdrop').getAttribute('aria-hidden')==='false')closeGinger();
+});
 </script>
 """
 source = source.replace("</body>", header_js + "\n</body>", 1)
