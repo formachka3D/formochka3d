@@ -31,6 +31,8 @@ def run():
         assert store.consume_one_time("fake", "verify") is False
         assert store.consume_one_time(verify, "verify") is True
         assert store.consume_one_time(verify, "verify") is False
+        assert store.points_balance(user_id) == 0  # Legacy consume_one_time is not web verification.
+        assert AccountStore(store.path).points_balance(user_id) == 10  # Legacy reward backfill on startup.
         user = store.authenticate("user@example.com", "Long!safe!password2026")
         assert user["id"] == user_id
 
