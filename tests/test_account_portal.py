@@ -36,20 +36,37 @@ class AccountPortalTest(unittest.TestCase):
 
         with patch.object(self.p, "smtp_settings", return_value={"configured": True}), \
                 patch.object(self.p, "send_later", side_effect=fake_send):
+            ch = self.client.get("/account/captcha").json()
+            with self.p.store.connect() as db:
+                answer = db.execute("SELECT answer FROM captcha_challenges WHERE id=?", (ch["id"],)).fetchone()[0]
             r = self.post("/account/signup", {
-                "email": "TestUSER@example.com", "password": "StrongStagingPassword2026!",
-                "newsletter": False
+                "display_name": "Тестовый пользователь", "email": "TestUSER@example.com",
+                "password": "StrongStagingPassword2026!", "avatar_emoji": "🍓",
+                "captcha_id": ch["id"], "captcha_answer": answer,
+                "privacy_accepted": True, "newsletter": False
             })
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(len(self.sent), 1)
             self.assertEqual(self.sent[0][1], "verify")
             self.assertIsNone(self.p.store.authenticate("testuser@example.com", "StrongStagingPassword2026!"))
             self.assertEqual(self.p.store.find_user("testuser@example.com")["email"], "testuser@example.com")
+            ch2 = self.client.get("/account/captcha").json()
+            with self.p.store.connect() as db:
+                answer2 = db.execute("SELECT answer FROM captcha_challenges WHERE id=?", (ch2["id"],)).fetchone()[0]
             self.assertEqual(self.post("/account/signup", {
-                "email": "testuser@example.com", "password": "StrongStagingPassword2026!",
-                "newsletter": True
+                "display_name": "Другой", "email": "testuser@example.com",
+                "password": "StrongStagingPassword2026!", "avatar_emoji": "🍓",
+                "captcha_id": ch2["id"], "captcha_answer": answer2,
+                "privacy_accepted": True, "newsletter": True
             }).status_code, 409)
-            self.assertEqual(self.client.get("/account/verify", params={"token": self.sent[0][2]}).status_code, 200)
+            verify = self.client.get("/account/verify", params={"token": self.sent[0][2]},
+                                     follow_redirects=False)
+            self.assertEqual(verify.status_code, 303)
+            self.assertEqual(verify.headers["location"], "/")
+            self.assertIn("__Host-f3d-session", self.client.cookies)
+            self.assertEqual(self.client.get("/account/api/me").json()["name"], "Тестовый пользователь")
+            self.assertEqual(self.client.get("/account/verify",
+                             params={"token": self.sent[0][2]}, follow_redirects=False).status_code, 400)
             self.assertEqual(self.post("/account/login", {
                 "email": "testuser@example.com", "password": "StrongStagingPassword2026!"
             }).status_code, 200)
