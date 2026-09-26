@@ -90,6 +90,18 @@ def generate(path,size=100,out=None):
             light_islands|=region
             for pts in smooth(region,area=8,external=True):
                 cv2.polylines(light_lines,[np.rint(pts).astype(np.int32)],True,1,max(2,round(1.2/pitch)),cv2.LINE_AA)
+    # Preserve the newer staging fix: remove tiny elongated shadows
+    # just outside bright features while retaining eyes/nose/mouth strokes.
+    edge=cv2.morphologyEx(light_islands,cv2.MORPH_GRADIENT,np.ones((3,3),np.uint8))
+    near=cv2.dilate(edge,np.ones((15,15),np.uint8))
+    n,labels,stats,_=cv2.connectedComponentsWithStats(dark_marks,8)
+    for i in range(1,n):
+        bx,by,bw,bh,area=stats[i]
+        area_mm=area*pitch*pitch
+        elong=max(bw,bh)/max(1,min(bw,bh))
+        region=(labels==i)
+        if area_mm<15 and elong>1.8 and np.count_nonzero(near[region])>area*.35:
+            dark_marks[region]=0
     # All downstream artifacts originate from one final, cleaned relief mask.
     dark_marks=fill_small_enclosed_holes(dark_marks,pitch)
     clean=np.maximum(dark_marks,light_lines)
@@ -113,7 +125,7 @@ def generate(path,size=100,out=None):
     volume=np.zeros((height+4,width+4,16),np.uint8)
     volume[2:-2,2:-2,1:9]=base[:,:,None]
     volume[2:-2,2:-2,9:14]=relief[:,:,None]
-    verts,faces,_,_=marching_cubes(volume,.5,spacing=(pitch,pitch,pitch))
+    verts,faces,_,_=marching_cubes(gaussian_filter(volume.astype(np.float32),sigma=(.72,.72,.32)),.5,spacing=(pitch,pitch,pitch))
     # Export in EXACT cutter coordinates: global image origin, Y inverted.
     # Both STLs share one coordinate system, regardless of individual bounds.
     vertices=verts[:,[1,0,2]].copy()
