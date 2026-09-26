@@ -392,12 +392,13 @@ def fetch_users(search: str, offset: int, limit: int):
 def admin_home(request: Request):
     current_user(request, admin=True)
     markup = """<h1>🍓 Админка Formochka3D</h1>
-<div class='grid'>
+<nav style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px"><a class="action" href="#users-section">Пользователи</a><a class="action" href="#subscribers-section">Подписчики и рассылки</a><a class="action" href="#stats-section">Статистика</a></nav>
+<div class='grid' id='stats-section'>
 <div class='stat'>Всего пользователей<strong id='total'>—</strong></div>
 <div class='stat'>Подтвердили почту<strong id='verified'>—</strong></div>
 <div class='stat'>Подписаны на рассылку<strong id='subscribed'>—</strong></div>
 <div class='stat'>Зарегистрировались сегодня (UTC)<strong id='today'>—</strong></div></div>
-<section class='panel' style='margin-top:20px'>
+<section class='panel' id='users-section' style='margin-top:20px'>
 <h2>Пользователи</h2>
 <input id='search' type='search' placeholder='Поиск по электронной почте'>
 <label>Фильтр <select id='filter'><option value='all'>Все</option>
@@ -411,7 +412,8 @@ def admin_home(request: Request):
 <p><button class='secondary' onclick='prev()'>Назад</button>
 <span id='page'></span>
 <button class='secondary' onclick='next()'>Дальше</button></p>
-<div id='message' role='status'></div></section>"""
+<div id='message' role='status'></div></section>
+<section class='panel' id='subscribers-section'><h2>💌 Подписчики и рассылки</h2><p>Здесь учитываются пользователи, подтвердившие почту и давшие отдельное согласие на рекламные письма. Отправка рекламных кампаний пока выключена.</p><p><button onclick='showSubscribers()'>Показать подписчиков</button> <a class='action' href='/admin/users.csv?filter=newsletter'>Скачать адреса подписчиков (CSV)</a></p></section>"""
     script = """<script>
 let offset=0,limit=25,count=0;
 function cell(text){let td=document.createElement('td');td.textContent=text;return td}
@@ -435,6 +437,7 @@ td.append(b);tr.append(td);tbody.append(tr)}
 document.getElementById('page').textContent=(offset+1)+'–'+Math.min(offset+limit,count)+' из '+count;
 document.getElementById('export').href='/admin/users.csv?'+new URLSearchParams({search:q,filter:f});
 }
+function showSubscribers(){document.getElementById('filter').value='newsletter';offset=0;load();document.getElementById('users-section').scrollIntoView({behavior:'smooth'})}
 function next(){if(offset+limit<count){offset+=limit;load()}}
 function prev(){offset=Math.max(0,offset-limit);load()}
 document.getElementById('search').addEventListener('keydown',e=>{if(e.key==='Enter'){offset=0;load()}});
@@ -444,7 +447,7 @@ document.getElementById('filter').addEventListener('change',()=>{offset=0;load()
 
 
 def admin_filter(filter_value: str):
-    return {"all": "", "newsletter": " AND n.consent_at IS NOT NULL AND n.unsubscribed_at IS NULL",
+    return {"all": "", "newsletter": " AND n.consent_at IS NOT NULL AND n.unsubscribed_at IS NULL AND u.verified_at IS NOT NULL AND u.disabled_at IS NULL",
             "unverified": " AND u.verified_at IS NULL"}[filter_value]
 
 
@@ -460,7 +463,7 @@ def admin_list(request: Request, search: str = Query("", max_length=120),
         stats = db.execute("""SELECT
             COUNT(*) total,
             COUNT(CASE WHEN u.verified_at IS NOT NULL THEN 1 END) verified,
-            COUNT(CASE WHEN n.consent_at IS NOT NULL AND n.unsubscribed_at IS NULL THEN 1 END) subscribed,
+            COUNT(CASE WHEN n.consent_at IS NOT NULL AND n.unsubscribed_at IS NULL AND u.verified_at IS NOT NULL AND u.disabled_at IS NULL THEN 1 END) subscribed,
             COUNT(CASE WHEN u.created_at >= ? THEN 1 END) today
             FROM users u LEFT JOIN newsletter_subscriptions n ON n.user_id=u.id WHERE u.role='user'""",
             (int(time.time()) // 86400 * 86400,)).fetchone()
