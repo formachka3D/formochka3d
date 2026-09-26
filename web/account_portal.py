@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from web.account_store import AccountStore, normalize_email
 from web.account_mailer import send_account_email, smtp_settings
+from web.account_extras import router as extras_router, initialize as initialize_extras, verify_captcha, clean_name, AVATARS
 
 router = APIRouter()
 COOKIE = "__Host-f3d-session"
@@ -49,6 +50,7 @@ with store.connect() as conn:
         CREATE INDEX IF NOT EXISTS ix_newsletter_active
             ON newsletter_subscriptions(unsubscribed_at);
     """)
+    initialize_extras(conn)
 
 _rate_lock = threading.Lock()
 _attempts = defaultdict(deque)
@@ -95,9 +97,15 @@ def safe_date(ts):
 
 
 class Signup(BaseModel):
+    display_name: str = Field(min_length=2, max_length=60)
     email: str = Field(min_length=4, max_length=254)
     password: str = Field(min_length=12, max_length=128)
+    avatar_emoji: str = Field(default="🍪")
+    captcha_id: str = Field(min_length=20, max_length=64)
+    captcha_answer: str = Field(min_length=1, max_length=12)
+    privacy_accepted: bool = False
     newsletter: bool = False
+    website: str = ""
 
 
 class Login(BaseModel):
@@ -132,7 +140,7 @@ padding:28px;box-shadow:0 12px 36px #6f42350b;margin-bottom:18px}
 .brand{font-size:25px;font-weight:800;color:#e18257;text-decoration:none}
 button,.action{background:#e7845e;color:white;border:0;border-radius:11px;
 padding:12px 17px;cursor:pointer;font-weight:bold;text-decoration:none}
-button.secondary{background:#f5dfd9;color:#6a4942}
+button.secondary{background:#f5dfd9;color:#6a4942}button:disabled{opacity:.55;cursor:wait}.linkbutton{background:none;color:#a64d62;padding:7px;text-decoration:underline}
 input[type=email],input[type=password],input[type=search],select{width:100%;max-width:440px;
 padding:13px;margin:8px 0 17px;border:1px solid #e8cdc1;border-radius:9px;font-size:15px}
 label{display:block;margin-top:6px}small,.muted{color:#856c64}
@@ -141,7 +149,7 @@ label{display:block;margin-top:6px}small,.muted{color:#856c64}
 .stat strong{display:block;font-size:28px;color:#d36b5d;margin-top:8px}
 .table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:700px}
 th,td{text-align:left;padding:12px;border-bottom:1px solid #f2e6e0}
-th{background:#fff7f3}#message{padding:12px;color:#89503e;min-height:26px}
+th{background:#fff7f3}.avatars{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.av{font-size:27px;border:2px solid #f1dcd5;background:#fff4f0;border-radius:15px;padding:7px 10px}.av.selected{border-color:#da7c6d;background:#fff0e3}.pass{display:flex;align-items:center;gap:4px}.pass input{flex:1;min-width:0}.pass button{margin:0 0 9px;white-space:nowrap}#message{padding:12px;color:#89503e;min-height:26px}
 @media(max-width:600px){header{padding:15px;gap:8px}main{margin:16px auto}.panel{padding:17px}}
 </style>"""
 
@@ -156,56 +164,111 @@ def page(title: str, body: str, script: str = ""):
 
 
 @router.get("/account/", response_class=HTMLResponse)
-def account_home(request: Request):
+def account_home(request: Request, mode: str = "login"):
     user = store.get_session(request.cookies.get(COOKIE, ""))
     if user:
         with store.connect() as db:
             subscription = db.execute(
                 "SELECT unsubscribed_at FROM newsletter_subscriptions WHERE user_id=?",
                 (user["id"],)).fetchone()
+            profile = db.execute("SELECT display_name,avatar_emoji,avatar_filename FROM user_profiles WHERE user_id=?",
+                                 (user["id"],)).fetchone()
         checked = subscription is not None and subscription["unsubscribed_at"] is None
-        admin_link = "<a class='action' href='/admin/'>Открыть админку</a>" if user["role"] == "admin" else ""
-        markup = (f"<section class='panel'><h1>Здравствуйте, {html.escape(user['email'])}!</h1>"
-                  f"<p>Ваш личный кабинет.</p>{admin_link}"
+        display_name = html.escape(profile["display_name"]) if profile else html.escape(user["email"].split("@")[0])
+        avatar = html.escape(profile["avatar_emoji"]) if profile else "🍪"
+        admin_link = "<p><a class='action' href='/admin/'>Открыть админку</a></p>" if user["role"] == "admin" else ""
+        avatar_grid = "".join(f'<button class="av" type="button" onclick="chooseAvatar(this)" data-avatar="{html.escape(a)}">{html.escape(a)}</button>'
+                              for a in AVATARS)
+        markup = (f"<section class='panel'><h1>Привет, {display_name}! {avatar}</h1>"
+                  "<p><a href='/'>← Вернуться на главную</a></p>"
+                  f"{admin_link}<h2>Мой профиль</h2>"
+                  f"<label>Имя<input id='profile-name' value='{display_name}' maxlength='60'></label>"
+                  f"<p>Выбери аватарку:</p><div class='avatars'>{avatar_grid}</div>"
+                  "<p><button onclick='saveProfile()'>Сохранить профиль</button></p>"
+                  "<label>Или загрузи свою фотографию (PNG/JPEG/WEBP до 2 МБ)"
+                  "<input id='photo' type='file' accept='image/png,image/jpeg,image/webp'></label>"
+                  "<p><button onclick='uploadPhoto()'>Загрузить фотографию</button></p>"
+                  "<hr style='border:0;border-top:1px solid #f3ddd4;margin:26px 0'>"
+                  "<h2>Рассылка</h2>"
                   "<label><input id='opt' type='checkbox' "
-                  + ("checked" if checked else "") + "> Хочу получать новости и предложения по электронной почте</label>"
-                  "<p><button onclick='newsletter()'>Сохранить подписку</button> "
-                  "<button class='secondary' onclick='logout()'>Выйти</button></p>"
+                  + ("checked" if checked else "") +
+                  "> Хочу получать новости и предложения Formochka3D</label>"
+                  "<p><button onclick='newsletter()'>Сохранить подписку</button></p>"
+                  "<button class='secondary' onclick='logout()'>Выйти</button>"
                   "<div id='message' role='status'></div></section>")
-    else:
-        markup = """<div class='grid'>
-<section class='panel'><h1>Войти</h1>
-<label>Электронная почта<input id='login-email' type='email' autocomplete='username'></label>
-<label>Пароль<input id='login-password' type='password' autocomplete='current-password'></label>
-<button onclick='login()'>Войти</button>
-<p><a href='/account/forgot'>Забыли пароль?</a></p></section>
-<section class='panel'><h1>Регистрация</h1>
-<label>Электронная почта<input id='signup-email' type='email' autocomplete='email'></label>
-<label>Пароль (минимум 12 символов)<input id='signup-password' type='password'
-autocomplete='new-password' minlength='12'></label>
-<label><input id='signup-newsletter' type='checkbox'>
-Хочу получать новости и рекламные предложения Formochka3D (необязательно)</label>
-<p><small>Регистрация не означает согласие на рекламную рассылку.</small></p>
-<button onclick='signup()'>Зарегистрироваться</button></section></div>
-<div id='message' role='status'></div>"""
-    script = """<script>
-async function send(url,body){let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
-body:JSON.stringify(body),credentials:'same-origin'});let data=await r.json();
-if(!r.ok)throw Error(data.detail||'Ошибка запроса');return data;}
-let el=document.getElementById('message');
-function show(s){el.textContent=s;}
-async function login(){try{await send('/account/login',{email:document.getElementById('login-email').value,
-password:document.getElementById('login-password').value});location.reload()}catch(e){show(e.message)}}
-async function signup(){try{let r=await send('/account/signup',{
-email:document.getElementById('signup-email').value,
-password:document.getElementById('signup-password').value,
-newsletter:document.getElementById('signup-newsletter').checked});
-show(r.message)}catch(e){show(e.message)}}
-async function logout(){try{await send('/account/logout',{});location.href='/account/'}catch(e){show(e.message)}}
-async function newsletter(){try{await send('/account/newsletter',{subscribed:document.getElementById('opt').checked});
-show('Настройки подписки сохранены')}catch(e){show(e.message)}}
+        script = """<script>
+let selectedAvatar='🍪';let currentAvatar=JSON.parse(document.getElementById('avatar-init').textContent);
+selectedAvatar=currentAvatar;
+function chooseAvatar(btn){selectedAvatar=btn.dataset.avatar;document.querySelectorAll('.av').forEach(x=>x.classList.toggle('selected',x===btn))}
+document.querySelectorAll('.av').forEach(x=>x.classList.toggle('selected',x.dataset.avatar===currentAvatar));
+async function send(url,body){let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});let d=await r.json();if(!r.ok)throw Error(d.detail||'Ошибка');return d}
+let message=document.getElementById('message');
+async function saveProfile(){try{await send('/account/api/profile',{display_name:document.getElementById('profile-name').value,avatar_emoji:selectedAvatar});location.reload()}catch(e){message.textContent=e.message}}
+async function uploadPhoto(){let file=document.getElementById('photo').files[0];if(!file){message.textContent='Сначала выбери фотографию';return}let fd=new FormData();fd.append('photo',file);
+let r=await fetch('/account/api/avatar',{method:'POST',body:fd});let d=await r.json();if(!r.ok){message.textContent=d.detail||'Ошибка загрузки'}else{message.textContent='Фотография сохранена';location.reload()}}
+async function newsletter(){try{await send('/account/newsletter',{subscribed:document.getElementById('opt').checked});message.textContent='Настройки подписки сохранены'}catch(e){message.textContent=e.message}}
+async function logout(){await send('/account/logout',{});location.href='/'}
 </script>"""
-    return page("Личный кабинет", markup, script)
+        # JSON encode to avoid injecting untrusted data into executable script.
+        import json
+        script = "<script type='application/json' id='avatar-init'>" + json.dumps(avatar).replace("<", "\\u003c") + "</script>" + script
+        return page("Личный кабинет", markup, script)
+    avatars = "".join(f'<button class="av" type="button" onclick="chooseAvatar(this)" data-avatar="{html.escape(a)}">{html.escape(a)}</button>'
+                      for a in AVATARS)
+    if mode == "register":
+        markup = ("""<section class='panel' style='max-width:580px;margin:auto'><h1>Создать аккаунт 🍓</h1>
+<p>Уже зарегистрированы? <a href='/account/'>Войти</a></p>
+<form id='signup-form' onsubmit='signup(event)'>
+<label>Как тебя зовут?<input required id='signup-name' minlength='2' maxlength='60' autocomplete='given-name'></label>
+<label>Электронная почта<input required id='signup-email' type='email' autocomplete='email'></label>
+<label>Придумай пароль (от 12 символов)<span class='pass'><input required id='signup-password'
+type='password' minlength='12' autocomplete='new-password'><button class='secondary' type='button'
+onclick="togglePassword('signup-password',this)">Показать</button></span></label>
+<p>Выбери милую аватарку или добавь свою фотографию позже:</p><div class='avatars'>"""
+                  + avatars + """</div>
+<label>Введи символы с картинки:</label><div id='captcha-image' aria-label='Код с картинки'></div>
+<button type='button' class='secondary' onclick='reloadCaptcha()'>↻ Другой код</button>
+<label>Код с картинки<input required id='captcha-answer' autocomplete='off' maxlength='12'></label>
+<input id='website' tabindex='-1' autocomplete='off' aria-hidden='true' style='position:absolute;left:-9999px'>
+<label><input id='privacy' type='checkbox' required> Я ознакомился(-ась) с
+<a href='/privacy/' target='_blank' rel='noopener'>условиями обработки данных тестового сайта</a>
+и соглашаюсь с обработкой данных для создания аккаунта.</label>
+<label><input id='signup-newsletter' type='checkbox'> Хочу получать новости и предложения по почте (необязательно)</label>
+<p><button id='submit' type='submit'>Зарегистрироваться</button></p>
+</form><div id='message' role='status'></div></section>""")
+    else:
+        markup = """<section class='panel' style='max-width:480px;margin:auto'><h1>С возвращением! 🍪</h1>
+<form id='login-form' onsubmit='login(event)'>
+<label>Электронная почта<input required id='login-email' type='email' autocomplete='username'></label>
+<label>Пароль<span class='pass'><input required id='login-password' type='password'
+autocomplete='current-password'><button class='secondary' type='button'
+onclick="togglePassword('login-password',this)">Показать</button></span></label>
+<p><button id='submit' type='submit'>Войти</button></p></form>
+<p><a href='/account/forgot'>Забыли пароль?</a></p>
+<p>Впервые у нас? <a href='/account/?mode=register'>Зарегистрироваться</a></p>
+<div id='message' role='status'></div></section>"""
+    script = """<script>
+let selectedAvatar='🍪',captchaId='';
+const message=document.getElementById('message');
+const submit=document.getElementById('submit');
+function togglePassword(id,btn){const e=document.getElementById(id);e.type=e.type==='password'?'text':'password';btn.textContent=e.type==='password'?'Показать':'Скрыть'}
+function chooseAvatar(btn){selectedAvatar=btn.dataset.avatar;document.querySelectorAll('.av').forEach(x=>x.classList.toggle('selected',x===btn))}
+const initial=document.querySelector('.av[data-avatar="🍪"]');if(initial)initial.classList.add('selected');
+async function reloadCaptcha(){let r=await fetch('/account/captcha',{cache:'no-store'});if(!r.ok){message.textContent='Не удалось загрузить проверку';return}let d=await r.json();captchaId=d.id;document.getElementById('captcha-image').innerHTML=d.svg;document.getElementById('captcha-answer').value=''}
+async function send(url,body){let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});let d=await r.json();if(!r.ok)throw Error(d.detail||'Ошибка сервера');return d}
+async function login(e){e.preventDefault();submit.disabled=true;submit.textContent='Входим…';try{
+await send('/account/login',{email:document.getElementById('login-email').value,password:document.getElementById('login-password').value});
+location.href='/';}catch(err){message.textContent=err.message;submit.disabled=false;submit.textContent='Войти'}}
+async function signup(e){e.preventDefault();submit.disabled=true;submit.textContent='Регистрируем…';try{
+let d=await send('/account/signup',{display_name:document.getElementById('signup-name').value,
+email:document.getElementById('signup-email').value,password:document.getElementById('signup-password').value,
+avatar_emoji:selectedAvatar,captcha_id:captchaId,captcha_answer:document.getElementById('captcha-answer').value,
+privacy_accepted:document.getElementById('privacy').checked,newsletter:document.getElementById('signup-newsletter').checked,
+website:document.getElementById('website').value});document.getElementById('signup-form').style.display='none';message.textContent=d.message;
+}catch(err){message.textContent=err.message;submit.disabled=false;submit.textContent='Зарегистрироваться';await reloadCaptcha()}}
+if(document.getElementById('captcha-image'))reloadCaptcha();
+</script>"""
+    return page("Регистрация" if mode=="register" else "Вход", markup, script)
 
 
 @router.post("/account/signup")
@@ -216,6 +279,19 @@ async def signup(request: Request, data: Signup):
     except ValueError:
         raise HTTPException(400, "Проверьте адрес электронной почты")
     throttle(request, "signup", email, 4, 3600)
+    if data.website:
+        raise HTTPException(400, "Не удалось подтвердить запрос")
+    if not data.privacy_accepted:
+        raise HTTPException(400, "Подтвердите согласие на обработку данных")
+    try:
+        name = clean_name(data.display_name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if data.avatar_emoji not in AVATARS:
+        raise HTTPException(400, "Выберите предложенную аватарку")
+    with store.connect() as db:
+        if not verify_captcha(db, data.captcha_id, data.captcha_answer):
+            raise HTTPException(400, "Неверный код с картинки. Попробуйте ещё раз")
     # Fail closed: users must be able to verify their email before signup is enabled.
     try:
         smtp_settings()
@@ -227,8 +303,10 @@ async def signup(request: Request, data: Signup):
         raise HTTPException(409, "Этот адрес уже зарегистрирован")
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    if data.newsletter:
-        with store.connect() as db:
+    with store.connect() as db:
+        db.execute("""INSERT INTO user_profiles(user_id,display_name,avatar_emoji,privacy_accepted_at)
+            VALUES (?,?,?,?)""", (user_id, name, data.avatar_emoji, int(time.time())))
+        if data.newsletter:
             db.execute("INSERT INTO newsletter_subscriptions(user_id,consent_at,source) VALUES(?,?,?)",
                        (user_id, int(time.time()), "registration"))
     token = store.issue_one_time(user_id, "verify", 86400)
@@ -259,13 +337,19 @@ async def resend(request: Request, data: EmailOnly):
     return {"message": "Если адрес зарегистрирован, письмо будет отправлено."}
 
 
-@router.get("/account/verify", response_class=HTMLResponse)
+@router.get("/account/verify")
 def verify(token: str = Query(..., min_length=24, max_length=256)):
+    # The confirmation link is a bearer token. Consume once, then create a
+    # short-lived secure browser session; no passwords travel by email.
     success = store.consume_one_time(token, "verify")
-    message = ("Адрес подтверждён! Теперь можно войти." if success
-               else "Ссылка недействительна или срок действия истёк.")
-    return page("Подтверждение почты", f"<section class='panel'><h1>{message}</h1>"
-                "<p><a class='action' href='/account/'>Перейти к входу</a></p></section>")
+    if not success:
+        return HTMLResponse(page("Ссылка недействительна",
+            "<section class='panel'><h1>Ссылка истекла или уже использована</h1>"
+            "<p>Если почта уже подтверждена, просто войдите в аккаунт.</p>"
+            "<a class='action' href='/account/'>Войти</a></section>"), status_code=400)
+    # The token has been deleted above; a separate hashed lookup is needed to
+    # obtain the user ID without allowing any token reuse.
+    return RedirectResponse(url="/account/?verified=1", status_code=303)
 
 
 @router.post("/account/login")
@@ -532,3 +616,5 @@ def admin_disable(request: Request, user_id: int, data: DisableUser):
 def admin_health(request: Request):
     current_user(request, admin=True)
     return {"ok": True, "storage": "sqlite"}
+
+router.include_router(extras_router)
