@@ -6,25 +6,41 @@ This module is inert until explicitly called by the registration routes.
 from __future__ import annotations
 
 import html
+import json
 import os
 import smtplib
 import ssl
+from pathlib import Path
 from email.message import EmailMessage
 from urllib.parse import quote
 
 
 def smtp_settings() -> dict:
-    required = ("FORMOCHKA_SMTP_HOST", "FORMOCHKA_SMTP_USER", "FORMOCHKA_SMTP_PASSWORD")
-    missing = [key for key in required if not os.environ.get(key)]
-    if missing:
-        raise RuntimeError("SMTP credentials are not configured: " + ", ".join(missing))
-    return {
-        "host": os.environ["FORMOCHKA_SMTP_HOST"],
-        "port": int(os.environ.get("FORMOCHKA_SMTP_PORT", "465")),
-        "user": os.environ["FORMOCHKA_SMTP_USER"],
-        "password": os.environ["FORMOCHKA_SMTP_PASSWORD"],
-        "sender": os.environ.get("FORMOCHKA_MAIL_FROM", "noreply@formochka3d.ru"),
-    }
+    """Read SMTP config from env or a root-only file. Never put keys in Git."""
+    if all(os.environ.get(k) for k in ("FORMOCHKA_SMTP_HOST", "FORMOCHKA_SMTP_USER", "FORMOCHKA_SMTP_PASSWORD")):
+        return {
+            "host": os.environ["FORMOCHKA_SMTP_HOST"],
+            "port": int(os.environ.get("FORMOCHKA_SMTP_PORT", "465")),
+            "user": os.environ["FORMOCHKA_SMTP_USER"],
+            "password": os.environ["FORMOCHKA_SMTP_PASSWORD"],
+            "sender": os.environ.get("FORMOCHKA_MAIL_FROM", "noreply@formochka3d.ru"),
+        }
+    config_file = Path(os.environ.get("FORMOCHKA_SMTP_CONFIG_FILE", "/app/data/mailer.json"))
+    try:
+        if config_file.stat().st_mode & 0o077:
+            raise RuntimeError("SMTP config file must be owner-only")
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        if not all(config.get(k) for k in ("host", "user", "password")):
+            raise RuntimeError("Incomplete SMTP config")
+        return {
+            "host": config["host"],
+            "port": int(config.get("port", 465)),
+            "user": config["user"],
+            "password": config["password"],
+            "sender": config.get("sender", "noreply@formochka3d.ru"),
+        }
+    except FileNotFoundError:
+        raise RuntimeError("SMTP credentials are not configured") from None
 
 
 def send_account_email(recipient: str, kind: str, token: str, *, base_url: str = "https://formochka3d.ru"):
