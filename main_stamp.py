@@ -107,7 +107,18 @@ def generate(path,size=100,out=None):
     clean=np.maximum(dark_marks,light_lines)
     clean=(gaussian_filter(clean.astype(float),sigma=1.0)>.42).astype(np.uint8)
     clean&=base
-    clean=fill_small_enclosed_holes(clean,pitch)
+    # A prepared 100 mm preview is the canonical detail mask. Reusing that
+    # exact segmentation keeps eyes, nose and tongue unchanged as size varies.
+    reference=os.path.join("output",name+"_stamp_mask.png")
+    reference_used=False
+    if not np.isclose(float(size),100.0) and os.path.isfile(reference):
+        prepared=cv2.imread(reference,cv2.IMREAD_GRAYSCALE)
+        if prepared is not None:
+            clean=cv2.resize((prepared<128).astype(np.uint8),(width,height),interpolation=cv2.INTER_NEAREST)
+            clean&=base
+            reference_used=True
+    if not reference_used:
+        clean=fill_small_enclosed_holes(clean,pitch)
     cv2.imwrite(out+"_mask.png",255-clean*255)
     # Preview at the SAME raster resolution and from the SAME final mask
     # used by the SVG and marching-cubes STL (not intermediate contours).
