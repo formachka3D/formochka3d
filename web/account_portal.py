@@ -407,13 +407,13 @@ def admin_home(request: Request):
 <p><button onclick='load()'>Найти</button>
 <a class='action' id='export' href='/admin/users.csv'>Выгрузить CSV для Excel</a></p>
 <div class='table-wrap'><table><thead><tr><th>Адрес</th><th>Регистрация</th>
-<th>Почта</th><th>Рассылка</th><th>Статус</th><th>Действия</th></tr></thead>
+<th>Почта</th><th>Рассылка</th><th>Роль</th><th>Статус</th><th>Действия</th></tr></thead>
 <tbody id='users'></tbody></table></div>
 <p><button class='secondary' onclick='prev()'>Назад</button>
 <span id='page'></span>
 <button class='secondary' onclick='next()'>Дальше</button></p>
 <div id='message' role='status'></div></section>
-<section class='panel' id='subscribers-section'><h2>💌 Подписчики и рассылки</h2><p>Здесь учитываются пользователи, подтвердившие почту и давшие отдельное согласие на рекламные письма. Отправка рекламных кампаний пока выключена.</p><p><button onclick='showSubscribers()'>Показать подписчиков</button> <a class='action' href='/admin/users.csv?filter=newsletter'>Скачать адреса подписчиков (CSV)</a></p></section>"""
+<section class='panel' id='subscribers-section'><h2>💌 Подписчики и рассылки</h2><p>Здесь учитываются подтверждённые аккаунты, включая администратора, если они дали отдельное согласие на рекламные письма. Отправка рекламных кампаний пока выключена.</p><p><button onclick='showSubscribers()'>Показать подписчиков</button> <a class='action' href='/admin/users.csv?filter=newsletter'>Скачать адреса подписчиков (CSV)</a></p></section>"""
     script = """<script>
 let offset=0,limit=25,count=0;
 function cell(text){let td=document.createElement('td');td.textContent=text;return td}
@@ -426,10 +426,11 @@ for(let k of ['total','verified','subscribed','today'])document.getElementById(k
 let tbody=document.getElementById('users');tbody.replaceChildren();
 for(let u of d.users){let tr=document.createElement('tr');
 tr.append(cell(u.email),cell(u.registered),cell(u.verified?'Да':'Нет'),cell(u.newsletter?'Да':'Нет'),
-cell(u.disabled?'Заблокирован':'Активен'));
+cell(u.role==='admin'?'Администратор':'Пользователь'),cell(u.disabled?'Заблокирован':'Активен'));
 let td=document.createElement('td'),b=document.createElement('button');b.className='secondary';
 b.textContent=u.disabled?'Разблокировать':'Заблокировать';
-b.onclick=async()=>{if(!confirm('Изменить доступ пользователя?'))return;
+b.disabled=u.role==='admin';if(u.role==='admin')b.textContent='Ваш аккаунт';
+b.onclick=async()=>{if(u.role==='admin')return;if(!confirm('Изменить доступ пользователя?'))return;
 let r=await fetch('/admin/api/users/'+u.id+'/disable',{method:'POST',
 headers:{'Content-Type':'application/json'},body:JSON.stringify({disabled:!u.disabled})});
 if(r.ok)load();else document.getElementById('message').textContent='Не удалось изменить статус'};
@@ -457,7 +458,7 @@ def admin_list(request: Request, search: str = Query("", max_length=120),
                offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
     current_user(request, admin=True)
     like = "%" + search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-    where = "u.role='user' AND u.email LIKE ? ESCAPE '\\'" + admin_filter(filter)
+    where = "u.email LIKE ? ESCAPE '\\'" + admin_filter(filter)
     join = "LEFT JOIN newsletter_subscriptions n ON n.user_id=u.id"
     with store.connect() as db:
         stats = db.execute("""SELECT
@@ -465,14 +466,14 @@ def admin_list(request: Request, search: str = Query("", max_length=120),
             COUNT(CASE WHEN u.verified_at IS NOT NULL THEN 1 END) verified,
             COUNT(CASE WHEN n.consent_at IS NOT NULL AND n.unsubscribed_at IS NULL AND u.verified_at IS NOT NULL AND u.disabled_at IS NULL THEN 1 END) subscribed,
             COUNT(CASE WHEN u.created_at >= ? THEN 1 END) today
-            FROM users u LEFT JOIN newsletter_subscriptions n ON n.user_id=u.id WHERE u.role='user'""",
+            FROM users u LEFT JOIN newsletter_subscriptions n ON n.user_id=u.id""",
             (int(time.time()) // 86400 * 86400,)).fetchone()
         matched = db.execute(f"SELECT COUNT(*) FROM users u {join} WHERE {where}", (like,)).fetchone()[0]
-        rows = db.execute(f"""SELECT u.id,u.email,u.created_at,u.verified_at,u.disabled_at,
+        rows = db.execute(f"""SELECT u.id,u.email,u.role,u.created_at,u.verified_at,u.disabled_at,
             n.consent_at,n.unsubscribed_at FROM users u {join}
             WHERE {where} ORDER BY u.created_at DESC,u.id DESC LIMIT ? OFFSET ?""",
             (like, limit, offset)).fetchall()
-    users = [{"id": row["id"], "email": row["email"], "registered": safe_date(row["created_at"]),
+    users = [{"id": row["id"], "email": row["email"], "role": row["role"], "registered": safe_date(row["created_at"]),
               "verified": row["verified_at"] is not None, "disabled": row["disabled_at"] is not None,
               "newsletter": row["consent_at"] is not None and row["unsubscribed_at"] is None}
              for row in rows]
@@ -493,7 +494,7 @@ def admin_csv(request: Request, search: str = Query("", max_length=120),
               filter: str = Query("all", pattern="^(all|newsletter|unverified)$")):
     current_user(request, admin=True)
     like = "%" + search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-    where = "u.role='user' AND u.email LIKE ? ESCAPE '\\'" + admin_filter(filter)
+    where = "u.email LIKE ? ESCAPE '\\'" + admin_filter(filter)
     with store.connect() as db:
         rows = db.execute(f"""SELECT u.email,u.created_at,u.verified_at,u.disabled_at,
             n.consent_at,n.unsubscribed_at FROM users u
