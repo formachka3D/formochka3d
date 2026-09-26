@@ -1573,7 +1573,7 @@ async def create_stamp(file: str = Form(...), size: float = Form(...)):
         return JSONResponse({"error":"Сначала подготовьте предварительный просмотр оттиска"},status_code=409)
     try:
         import trimesh
-        mesh=trimesh.load(cached,force="mesh",process=False)
+        mesh=trimesh.load(cached,force="mesh",process=True)
         if not mesh.is_watertight or mesh.volume<=0:
             return JSONResponse({"error":"Недопустимая модель оттиска"},status_code=422)
         # The cutter and stamp share the original image coordinate origin.
