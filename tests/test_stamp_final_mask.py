@@ -55,6 +55,20 @@ def test_preview_and_stl_share_final_mask():
             assert result["watertight"]
             assert result["features"] >= 3
             assert os.path.isfile(f"output/{name}_stamp.stl")
+            # The web download must scale the cached preview-matching STL,
+            # not regenerate features at each slider setting.
+            import trimesh
+            cached = trimesh.load(f"output/{name}_stamp.stl", force="mesh", process=False)
+            assert cached.is_watertight and cached.volume > 0
+            original = cached.extents.copy()
+            for requested_size in (40, 100, 200):
+                resized = cached.copy()
+                resized.vertices[:, 0:2] *= requested_size / 100
+                assert resized.is_watertight
+                assert np.allclose(
+                    resized.extents[:2], original[:2] * requested_size / 100
+                )
+                assert np.isclose(resized.extents[2], original[2])
         finally:
             os.chdir(previous)
 
@@ -62,4 +76,4 @@ def test_preview_and_stl_share_final_mask():
 if __name__ == "__main__":
     test_small_hole_cleanup()
     test_preview_and_stl_share_final_mask()
-    print("PASS: hole cleanup, same-mask preview, watertight STL")
+    print("PASS: hole cleanup, same-mask preview, watertight STL and XY scaling")
