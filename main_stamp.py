@@ -20,6 +20,18 @@ def smooth(mask,area=3,external=False):
         if len(pts)>=3:out.append(pts)
     return out
 
+def fill_small_enclosed_holes(mask, pitch, max_area_mm2=1.2):
+    """Close only tiny enclosed raster defects; leave larger/open holes intact."""
+    mask=(mask>0).astype(np.uint8)
+    count,labels,stats,_=cv2.connectedComponentsWithStats(1-mask,8)
+    max_pixels=max(1,int(round(max_area_mm2/(pitch*pitch))))
+    height,width=mask.shape
+    for i in range(1,count):
+        bx,by,bw,bh,area=stats[i]
+        if area<=max_pixels and bx>0 and by>0 and bx+bw<width and by+bh<height:
+            mask[labels==i]=1
+    return mask
+
 def generate(path,size=100,out=None):
     name=os.path.splitext(os.path.basename(path))[0]
     out=out or "output/"+name+"_stamp"
@@ -78,17 +90,41 @@ def generate(path,size=100,out=None):
             light_islands|=region
             for pts in smooth(region,area=8,external=True):
                 cv2.polylines(light_lines,[np.rint(pts).astype(np.int32)],True,1,max(2,round(1.2/pitch)),cv2.LINE_AA)
+    # Preserve the newer staging fix: remove tiny elongated shadows
+    # just outside bright features while retaining eyes/nose/mouth strokes.
+    edge=cv2.morphologyEx(light_islands,cv2.MORPH_GRADIENT,np.ones((3,3),np.uint8))
+    near=cv2.dilate(edge,np.ones((15,15),np.uint8))
+    n,labels,stats,_=cv2.connectedComponentsWithStats(dark_marks,8)
+    for i in range(1,n):
+        bx,by,bw,bh,area=stats[i]
+        area_mm=area*pitch*pitch
+        elong=max(bw,bh)/max(1,min(bw,bh))
+        region=(labels==i)
+        if area_mm<15 and elong>1.8 and np.count_nonzero(near[region])>area*.35:
+            dark_marks[region]=0
+    # All downstream artifacts originate from one final, cleaned relief mask.
+    dark_marks=fill_small_enclosed_holes(dark_marks,pitch)
     clean=np.maximum(dark_marks,light_lines)
     clean=(gaussian_filter(clean.astype(float),sigma=1.0)>.42).astype(np.uint8)
     clean&=base
+    # A prepared 100 mm preview is the canonical detail mask. Reusing that
+    # exact segmentation keeps eyes, nose and tongue unchanged as size varies.
+    reference=os.path.join("output",name+"_stamp_mask.png")
+    reference_used=False
+    if not np.isclose(float(size),100.0) and os.path.isfile(reference):
+        prepared=cv2.imread(reference,cv2.IMREAD_GRAYSCALE)
+        if prepared is not None:
+            clean=cv2.resize((prepared<128).astype(np.uint8),(width,height),interpolation=cv2.INTER_NEAREST)
+            clean&=base
+            reference_used=True
+    if not reference_used:
+        clean=fill_small_enclosed_holes(clean,pitch)
     cv2.imwrite(out+"_mask.png",255-clean*255)
-    overlay=np.full((h0,w0,3),255,np.uint8)
-    def to_full(pts):return np.rint(np.asarray(pts)*(pitch/scale)+[x,y]).astype(np.int32)
-    for pts in smooth(light_islands,area=8,external=True):
-        cv2.polylines(overlay,[to_full(pts)],True,(225,93,20),2,cv2.LINE_AA)
-    for pts in smooth(dark_marks):
-        cv2.fillPoly(overlay,[to_full(pts)],(225,93,20),cv2.LINE_AA)
-    cv2.polylines(overlay,[np.rint(vector).astype(np.int32)],True,(0,145,255),2,cv2.LINE_AA)
+    # Preview at the SAME raster resolution and from the SAME final mask
+    # used by the SVG and marching-cubes STL (not intermediate contours).
+    overlay=np.full((height,width,3),255,np.uint8)
+    overlay[clean>0]=(225,93,20)
+    cv2.polylines(overlay,[coords(vector)],True,(0,145,255),max(1,round(.5/pitch)),cv2.LINE_8)
     cv2.imwrite(out+"_preview.png",overlay)
     paths=[]
     for pts in smooth(clean):
@@ -100,7 +136,7 @@ def generate(path,size=100,out=None):
     volume=np.zeros((height+4,width+4,16),np.uint8)
     volume[2:-2,2:-2,1:9]=base[:,:,None]
     volume[2:-2,2:-2,9:14]=relief[:,:,None]
-    verts,faces,_,_=marching_cubes(volume,.5,spacing=(pitch,pitch,pitch))
+    verts,faces,_,_=marching_cubes(gaussian_filter(volume.astype(np.float32),sigma=(.72,.72,.32)),.5,spacing=(pitch,pitch,pitch))
     # Export in EXACT cutter coordinates: global image origin, Y inverted.
     # Both STLs share one coordinate system, regardless of individual bounds.
     vertices=verts[:,[1,0,2]].copy()

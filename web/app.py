@@ -1390,8 +1390,8 @@ async def prepare_image(
             _,err=await process.communicate()
             if process.returncode!=0:
                 return JSONResponse({"error":"Не удалось распознать оттиск"},status_code=422)
-            try: os.remove(stamp_base+".stl")
-            except FileNotFoundError: pass
+            # Keep the exact 100-mm STL generated together with the preview.
+            # Downloads only rescale its XY coordinates; no second image analysis.
 
         return {
             "file": stored_file,
@@ -1566,16 +1566,21 @@ async def create_stamp(file: str = Form(...), size: float = Form(...)):
     source=os.path.join("input",file)
     if not os.path.isfile(source):
         return JSONResponse({"error":"Изображение не найдено"},status_code=404)
-    prefix=os.path.join("output",uuid.uuid4().hex+"_stamp")
+    # Stamp preparation already generated the preview and its matching STL
+    # together at 100 mm. Reuse that SAME geometry at every selected size.
+    cached=os.path.join("output",os.path.splitext(file)[0]+"_stamp.stl")
+    if not os.path.isfile(cached):
+        return JSONResponse({"error":"Сначала подготовьте предварительный просмотр оттиска"},status_code=409)
     try:
-        process=await asyncio.create_subprocess_exec(sys.executable,"main_stamp.py",source,str(size),prefix,stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.PIPE)
-        _,stderr=await process.communicate()
-        if process.returncode!=0 or not os.path.isfile(prefix+".stl"):
-            return JSONResponse({"error":"Не удалось создать оттиск"},status_code=422)
+        import trimesh
+        mesh=trimesh.load(cached,force="mesh",process=True)
+        if not mesh.is_watertight or mesh.volume<=0:
+            return JSONResponse({"error":"Недопустимая модель оттиска"},status_code=422)
+        # The cutter and stamp share the original image coordinate origin.
+        # Scaling XY around zero preserves their mutual registration.
+        mesh.vertices[:,0:2]*=size/100.0
+        payload=mesh.export(file_type="stl")
         from fastapi.responses import Response
-        with open(prefix+".stl","rb") as model: payload=model.read()
         return Response(content=payload,media_type="application/octet-stream",headers={"Content-Disposition":'attachment; filename="ottisk.stl"'})
-    finally:
-        for ext in (".stl",".svg","_mask.png","_preview.png"):
-            try: os.remove(prefix+ext)
-            except FileNotFoundError: pass
+    except (ValueError, OSError) as exc:
+        return JSONResponse({"error":"Не удалось подготовить оттиск"},status_code=422)
