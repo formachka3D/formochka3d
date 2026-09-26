@@ -341,15 +341,17 @@ async def resend(request: Request, data: EmailOnly):
 def verify(token: str = Query(..., min_length=24, max_length=256)):
     # The confirmation link is a bearer token. Consume once, then create a
     # short-lived secure browser session; no passwords travel by email.
-    success = store.consume_one_time(token, "verify")
-    if not success:
+    session = store.verify_and_start_session(token)
+    if not session:
         return HTMLResponse(page("Ссылка недействительна",
             "<section class='panel'><h1>Ссылка истекла или уже использована</h1>"
             "<p>Если почта уже подтверждена, просто войдите в аккаунт.</p>"
             "<a class='action' href='/account/'>Войти</a></section>"), status_code=400)
-    # The token has been deleted above; a separate hashed lookup is needed to
-    # obtain the user ID without allowing any token reuse.
-    return RedirectResponse(url="/account/?verified=1", status_code=303)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(COOKIE, session, max_age=14*86400, httponly=True,
+                        secure=True, samesite="lax", path="/")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.post("/account/login")
