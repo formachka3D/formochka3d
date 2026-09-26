@@ -492,7 +492,7 @@ def admin_home(request: Request):
 <option value='unverified'>Не подтвердили почту</option></select></label>
 <p><button onclick='load()'>Найти</button>
 <a class='action' id='export' href='/admin/users.csv'>Выгрузить CSV для Excel</a></p>
-<div class='table-wrap'><table><thead><tr><th>Адрес</th><th>Регистрация</th>
+<div class='table-wrap'><table><thead><tr><th>Имя</th><th>Адрес</th><th>Регистрация</th>
 <th>Почта</th><th>Рассылка</th><th>Роль</th><th>Статус</th><th>Действия</th></tr></thead>
 <tbody id='users'></tbody></table></div>
 <p><button class='secondary' onclick='prev()'>Назад</button>
@@ -511,7 +511,7 @@ let d=await r.json();count=d.matched;
 for(let k of ['total','verified','subscribed','today'])document.getElementById(k).textContent=d.stats[k];
 let tbody=document.getElementById('users');tbody.replaceChildren();
 for(let u of d.users){let tr=document.createElement('tr');
-tr.append(cell(u.email),cell(u.registered),cell(u.verified?'Да':'Нет'),cell(u.newsletter?'Да':'Нет'),
+tr.append(cell((u.avatar||'🍪')+' '+(u.name||'—')),cell(u.email),cell(u.registered),cell(u.verified?'Да':'Нет'),cell(u.newsletter?'Да':'Нет'),
 cell(u.role==='admin'?'Администратор':'Пользователь'),cell(u.disabled?'Заблокирован':'Активен'));
 let td=document.createElement('td'),b=document.createElement('button');b.className='secondary';
 b.textContent=u.disabled?'Разблокировать':'Заблокировать';
@@ -545,7 +545,7 @@ def admin_list(request: Request, search: str = Query("", max_length=120),
     current_user(request, admin=True)
     like = "%" + search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     where = "u.email LIKE ? ESCAPE '\\'" + admin_filter(filter)
-    join = "LEFT JOIN newsletter_subscriptions n ON n.user_id=u.id"
+    join = "LEFT JOIN newsletter_subscriptions n ON n.user_id=u.id LEFT JOIN user_profiles p ON p.user_id=u.id"
     with store.connect() as db:
         stats = db.execute("""SELECT
             COUNT(*) total,
@@ -556,10 +556,10 @@ def admin_list(request: Request, search: str = Query("", max_length=120),
             (int(time.time()) // 86400 * 86400,)).fetchone()
         matched = db.execute(f"SELECT COUNT(*) FROM users u {join} WHERE {where}", (like,)).fetchone()[0]
         rows = db.execute(f"""SELECT u.id,u.email,u.role,u.created_at,u.verified_at,u.disabled_at,
-            n.consent_at,n.unsubscribed_at FROM users u {join}
+            n.consent_at,n.unsubscribed_at,p.display_name,p.avatar_emoji FROM users u {join}
             WHERE {where} ORDER BY u.created_at DESC,u.id DESC LIMIT ? OFFSET ?""",
             (like, limit, offset)).fetchall()
-    users = [{"id": row["id"], "email": row["email"], "role": row["role"], "registered": safe_date(row["created_at"]),
+    users = [{"id": row["id"], "email": row["email"], "role": row["role"], "name": row["display_name"], "avatar": row["avatar_emoji"], "registered": safe_date(row["created_at"]),
               "verified": row["verified_at"] is not None, "disabled": row["disabled_at"] is not None,
               "newsletter": row["consent_at"] is not None and row["unsubscribed_at"] is None}
              for row in rows]
@@ -582,17 +582,18 @@ def admin_csv(request: Request, search: str = Query("", max_length=120),
     like = "%" + search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     where = "u.email LIKE ? ESCAPE '\\'" + admin_filter(filter)
     with store.connect() as db:
-        rows = db.execute(f"""SELECT u.email,u.created_at,u.verified_at,u.disabled_at,
-            n.consent_at,n.unsubscribed_at FROM users u
-            LEFT JOIN newsletter_subscriptions n ON n.user_id=u.id WHERE {where}
+        rows = db.execute(f"""SELECT u.email,u.role,u.created_at,u.verified_at,u.disabled_at,
+            n.consent_at,n.unsubscribed_at,p.display_name FROM users u
+            LEFT JOIN newsletter_subscriptions n ON n.user_id=u.id
+            LEFT JOIN user_profiles p ON p.user_id=u.id WHERE {where}
             ORDER BY u.created_at DESC,u.id DESC""", (like,)).fetchall()
     out = io.StringIO()
     writer = csv.writer(out, delimiter=";")
-    writer.writerow(["Email", "Регистрация (UTC)", "Почта подтверждена",
+    writer.writerow(["Имя", "Email", "Роль", "Регистрация (UTC)", "Почта подтверждена",
                      "Рассылка", "Согласие (UTC)", "Заблокирован"])
     for r in rows:
         subscribed = r["consent_at"] is not None and r["unsubscribed_at"] is None
-        writer.writerow([spreadsheet_cell(r["email"]), safe_date(r["created_at"]),
+        writer.writerow([spreadsheet_cell(r["display_name"] or ''), spreadsheet_cell(r["email"]), r["role"], safe_date(r["created_at"]),
                          "Да" if r["verified_at"] else "Нет",
                          "Да" if subscribed else "Нет",
                          safe_date(r["consent_at"]), "Да" if r["disabled_at"] else "Нет"])
