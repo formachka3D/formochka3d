@@ -65,6 +65,8 @@ class AccountPortalTest(unittest.TestCase):
             self.assertEqual(verify.headers["location"], "/")
             self.assertIn("__Host-f3d-session", self.client.cookies)
             self.assertEqual(self.client.get("/account/api/me").json()["name"], "Тестовый пользователь")
+            self.assertEqual(self.client.get("/account/api/points").json()["balance"], 10)
+            self.assertIn("Мои прянички", self.client.get("/account/").text)
             self.assertEqual(self.client.get("/account/verify",
                              params={"token": self.sent[0][2]}, follow_redirects=False).status_code, 400)
             self.assertEqual(self.post("/account/login", {
