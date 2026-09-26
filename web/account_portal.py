@@ -179,7 +179,9 @@ def account_home(request: Request, mode: str = "login"):
         admin_link = "<p><a class='action' href='/admin/'>Открыть админку</a></p>" if user["role"] == "admin" else ""
         avatar_grid = "".join(f'<button class="av" type="button" onclick="chooseAvatar(this)" data-avatar="{html.escape(a)}">{html.escape(a)}</button>'
                               for a in AVATARS)
+        points = store.points_balance(user["id"])
         markup = (f"<section class='panel'><h1>Привет, {display_name}! {avatar}</h1>"
+                  f"<p class='stat' aria-label='Баланс пряничков'>🍪 Мои прянички: <strong>{points}</strong></p>"
                   "<p><a href='/'>← Вернуться на главную</a></p>"
                   f"{admin_link}<h2>Мой профиль</h2>"
                   f"<label>Имя<input id='profile-name' value='{display_name}' maxlength='60'></label>"
@@ -438,6 +440,13 @@ def reset_finish(request: Request, data: ResetFinish):
     if not success:
         raise HTTPException(400, "Ссылка недействительна или срок действия истёк")
     return {"message": "Пароль изменён. Теперь можно войти."}
+
+
+@router.get("/account/api/points")
+def own_points(request: Request):
+    user = current_user(request)
+    return JSONResponse({"balance": store.points_balance(user["id"]), "unit": "Прянички"},
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.post("/account/newsletter")
