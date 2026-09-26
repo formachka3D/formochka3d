@@ -143,6 +143,31 @@ class AccountStore:
             db.execute("DELETE FROM one_time_tokens WHERE token_hash=?", (digest,))
             return True
 
+    def verify_and_start_session(self, token: str) -> str | None:
+        """Atomically consume one email-verification token and start a session."""
+        if not isinstance(token, str) or len(token) > 256:
+            return None
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        now = int(time.time())
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            record = db.execute("""
+                SELECT t.user_id FROM one_time_tokens t
+                JOIN users u ON u.id=t.user_id
+                WHERE t.token_hash=? AND t.purpose='verify' AND t.expires_at>?
+                    AND u.disabled_at IS NULL
+            """, (digest, now)).fetchone()
+            if record is None:
+                return None
+            user_id = record["user_id"]
+            db.execute("UPDATE users SET verified_at=COALESCE(verified_at,?) WHERE id=?",
+                       (now, user_id))
+            db.execute("DELETE FROM one_time_tokens WHERE token_hash=?", (digest,))
+            session = secrets.token_urlsafe(32)
+            db.execute("INSERT INTO sessions VALUES (?,?,?,?)",
+                       (hashlib.sha256(session.encode()).hexdigest(), user_id, now+14*86400, now))
+        return session
+
     def create_session(self, user_id: int, ttl: int = 14 * 86400) -> str:
         token = secrets.token_urlsafe(32)
         with self.connect() as db:
