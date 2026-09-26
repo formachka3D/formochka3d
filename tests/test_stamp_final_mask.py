@@ -111,4 +111,5 @@ def test_size_reuses_prepared_details():
 if __name__ == "__main__":
     test_small_hole_cleanup()
     test_preview_and_stl_share_final_mask()
+    test_size_reuses_prepared_details()
     print("PASS: hole cleanup, same-mask preview, watertight STL and XY scaling")
