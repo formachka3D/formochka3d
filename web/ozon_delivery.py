@@ -3,6 +3,8 @@ import os
 import time
 import urllib.error
 import urllib.request
+import requests
+from urllib.parse import urljoin
 
 
 class OzonDeliveryError(RuntimeError):
@@ -117,29 +119,46 @@ class OzonDeliveryClient:
         }
 
     def request(self, path, payload):
-        url = self.BASE_URL + path
-        body = json.dumps(payload).encode("utf-8")
+        url = self.BASE_URL.rstrip("/") + path
+        headers = self._headers()
+        session = requests.Session()
+        for _ in range(4):
+            try:
+                response = session.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=25,
+                    allow_redirects=False,
+                )
+            except requests.RequestException as exc:
+                raise OzonDeliveryError(
+                    f"Could not connect to Ozon Delivery API: {exc}"
+                ) from exc
 
-        request = urllib.request.Request(
-            url,
-            data=body,
-            method="POST",
-            headers=self._headers(),
-        )
+            if response.status_code in (302, 307):
+                location = response.headers.get("Location")
+                if not location:
+                    raise OzonDeliveryError(
+                        f"Ozon Delivery redirect HTTP {response.status_code} had no Location"
+                    )
+                url = urljoin(url, location)
+                continue
 
-        try:
-            with urllib.request.urlopen(request, timeout=20) as response:
-                raw = response.read().decode("utf-8")
-                return json.loads(raw) if raw else {}
-        except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8", errors="replace")
-            raise OzonDeliveryError(
-                f"Ozon Delivery API returned HTTP {exc.code}: {raw}"
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise OzonDeliveryError(
-                f"Could not connect to Ozon Delivery API: {exc.reason}"
-            ) from exc
+            if response.status_code >= 400:
+                raise OzonDeliveryError(
+                    f"Ozon Delivery API returned HTTP {response.status_code}: {response.text[:1500]}"
+                )
+            if not response.content:
+                return {}
+            try:
+                return response.json()
+            except ValueError as exc:
+                raise OzonDeliveryError(
+                    "Ozon Delivery API returned invalid JSON"
+                ) from exc
+
+        raise OzonDeliveryError("Too many Ozon Delivery redirects")
 
     def check_auth(self):
         self._get_access_token()
