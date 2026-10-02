@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -10,53 +11,110 @@ class OzonDeliveryError(RuntimeError):
 
 class OzonDeliveryClient:
     BASE_URL = "https://api-seller.ozon.ru"
+    TOKEN_URL = "https://xapi.ozon.ru/oauth/token"
+    DEFAULT_SCOPE = ["delivery-api.all"]
 
-    def __init__(self, token=None, client_id=None, api_key=None):
-        self.token = token or os.getenv("OZON_DELIVERY_TOKEN", "").strip()
+    def __init__(self, token=None, client_id=None, client_secret=None):
+        self.token = (token or os.getenv("OZON_DELIVERY_TOKEN", "")).strip()
         self.client_id = (
             client_id
-            or os.getenv("OZON_CLIENT_ID", "").strip()
+            or os.getenv("OZON_DELIVERY_CLIENT_ID", "").strip()
         )
-        self.api_key = (
-            api_key
-            or os.getenv("OZON_API_KEY", "").strip()
+        self.client_secret = (
+            client_secret
+            or os.getenv("OZON_DELIVERY_CLIENT_SECRET", "").strip()
         )
+        self._token_expires_at = 0
 
     @property
     def configured(self):
         return bool(
             self.token
-            or (self.client_id and self.api_key)
+            or (self.client_id and self.client_secret)
         )
 
     @property
     def auth_mode(self):
-        if self.client_id and self.api_key:
-            return "seller_api"
         if self.token:
             return "oauth_bearer"
+        if self.client_id and self.client_secret:
+            return "oauth_client_credentials"
         return "not_configured"
 
+    def _get_access_token(self):
+        if self.token and (
+            not self._token_expires_at
+            or time.time() < self._token_expires_at - 30
+        ):
+            return self.token
+
+        if not (self.client_id and self.client_secret):
+            raise OzonDeliveryError(
+                "Ozon Delivery credentials are not configured. "
+                "Set OZON_DELIVERY_CLIENT_ID and "
+                "OZON_DELIVERY_CLIENT_SECRET."
+            )
+
+        payload = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "grant_type": "client_credentials",
+            "scope": self.DEFAULT_SCOPE,
+        }
+        body = json.dumps(payload).encode("utf-8")
+
+        request = urllib.request.Request(
+            self.TOKEN_URL,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                raw = response.read().decode("utf-8")
+                data = json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            raise OzonDeliveryError(
+                f"Ozon OAuth returned HTTP {exc.code}: {raw}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise OzonDeliveryError(
+                f"Could not connect to Ozon OAuth: {exc.reason}"
+            ) from exc
+
+        token = (data.get("access_token") or "").strip()
+        if not token:
+            raise OzonDeliveryError(
+                "Ozon OAuth response did not contain access_token."
+            )
+
+        expires_in = data.get("expires_in")
+        try:
+            expires_value = float(expires_in)
+            now = time.time()
+            # Ozon may return an absolute Unix timestamp.
+            self._token_expires_at = (
+                expires_value
+                if expires_value > now
+                else now + expires_value
+            )
+        except (TypeError, ValueError):
+            self._token_expires_at = time.time() + 900
+
+        self.token = token
+        return token
+
     def _headers(self):
-        headers = {
+        return {
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "Authorization": f"Bearer {self._get_access_token()}",
         }
-
-        if self.client_id and self.api_key:
-            headers["Client-Id"] = self.client_id
-            headers["Api-Key"] = self.api_key
-            return headers
-
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-            return headers
-
-        raise OzonDeliveryError(
-            "Ozon credentials are not configured. "
-            "Set OZON_CLIENT_ID + OZON_API_KEY "
-            "or OZON_DELIVERY_TOKEN."
-        )
 
     def request(self, path, payload):
         url = self.BASE_URL + path
@@ -82,6 +140,10 @@ class OzonDeliveryClient:
             raise OzonDeliveryError(
                 f"Could not connect to Ozon Delivery API: {exc.reason}"
             ) from exc
+
+    def check_auth(self):
+        self._get_access_token()
+        return True
 
     def check_delivery(self, payload):
         return self.request("/v1/delivery/check", payload)
