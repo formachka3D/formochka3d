@@ -7,6 +7,8 @@ import subprocess
 import sys
 import uuid
 
+from web.ozon_delivery import OzonDeliveryClient
+
 
 app = FastAPI()
 
