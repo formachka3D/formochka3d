@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Header
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -1620,5 +1620,18 @@ def ozon_points():
         _OZON_POINTS_CACHE["at"] = now
         _OZON_POINTS_CACHE["points"] = points
         return {"ok": True, "cached": False, "points": points}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+
+
+@app.get("/api/ozon/bridge-token")
+def ozon_bridge_token(x_bridge_key: str = Header("")):
+    expected = os.getenv("OZON_BRIDGE_KEY", "")
+    if not expected or x_bridge_key != expected:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    client = OzonDeliveryClient()
+    try:
+        token = client._get_access_token()
+        return {"ok": True, "access_token": token}
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
