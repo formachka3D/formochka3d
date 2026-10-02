@@ -1575,3 +1575,13 @@ def preview_text():
         )
 
     return FileResponse(path)
+
+
+@app.get("/api/ozon/status")
+def ozon_status():
+    client = OzonDeliveryClient()
+    return {
+        "configured": client.configured,
+        "integration": "ozon_delivery",
+        "auth": "oauth_bearer",
+    }
