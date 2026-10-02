@@ -1584,8 +1584,20 @@ def preview_text():
 @app.get("/api/ozon/status")
 def ozon_status():
     client = OzonDeliveryClient()
-    return {
+    result = {
         "configured": client.configured,
         "integration": "ozon_delivery",
-        "auth": "oauth_bearer",
+        "auth": client.auth_mode,
+        "authenticated": False,
     }
+
+    if not client.configured:
+        return result
+
+    try:
+        client.check_auth()
+        result["authenticated"] = True
+        return result
+    except Exception as exc:
+        result["error"] = str(exc)
+        return JSONResponse(result, status_code=502)
