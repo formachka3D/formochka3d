@@ -1601,3 +1601,24 @@ def ozon_status():
     except Exception as exc:
         result["error"] = str(exc)
         return JSONResponse(result, status_code=502)
+
+
+_OZON_POINTS_CACHE = {"at": 0.0, "points": []}
+
+@app.get("/api/ozon/points")
+def ozon_points():
+    import time
+    now = time.time()
+    cached = _OZON_POINTS_CACHE.get("points") or []
+    if cached and now - float(_OZON_POINTS_CACHE.get("at") or 0) < 3600:
+        return {"ok": True, "cached": True, "points": cached}
+    client = OzonDeliveryClient()
+    if not client.configured:
+        return JSONResponse({"ok": False, "error": "Ozon Delivery is not configured"}, status_code=503)
+    try:
+        points = client.all_points()
+        _OZON_POINTS_CACHE["at"] = now
+        _OZON_POINTS_CACHE["points"] = points
+        return {"ok": True, "cached": False, "points": points}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
