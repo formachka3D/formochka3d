@@ -10,7 +10,7 @@ class OzonDeliveryError(RuntimeError):
 
 
 class OzonDeliveryClient:
-    BASE_URL = "https://api-seller.ozon.ru"
+    BASE_URL = "https://api-delivery.ozon.ru"
     TOKEN_URL = "https://xapi.ozon.ru/oauth/token"
     DEFAULT_SCOPE = ["delivery-api.all"]
 
@@ -152,13 +152,35 @@ class OzonDeliveryClient:
         return self.request("/v2/delivery/checkout", payload)
 
     def list_points(self, payload):
-        return self.request("/v1/delivery/point/list", payload)
+        return self.request("/v1/delivery-point/list", payload)
 
     def point_info(self, payload):
-        return self.request("/v1/delivery/point/info", payload)
+        return self.request("/v1/delivery-point/info", payload)
 
     def create_order(self, payload):
         return self.request("/v2/order/create", payload)
 
     def cancel_order(self, payload):
         return self.request("/v1/order/cancel", payload)
+
+
+    def all_points(self, max_pages=50, limit=100):
+        """Return active delivery point details, paginated and safe for UI selection."""
+        points = []
+        cursor = None
+        seen = set()
+        for _ in range(max_pages):
+            page = self.list_points({"pagination": {"cursor": cursor, "limit": limit}})
+            rows = page.get("delivery_points") or []
+            ids = [r.get("delivery_point_id") for r in rows if isinstance(r, dict) and isinstance(r.get("delivery_point_id"), int)]
+            if ids:
+                info = self.point_info({"delivery_point_ids": ids})
+                for p in info.get("delivery_points") or []:
+                    if isinstance(p, dict) and p.get("is_active", True):
+                        points.append(p)
+            nxt = page.get("next_cursor")
+            if not nxt or nxt in seen:
+                break
+            seen.add(nxt)
+            cursor = nxt
+        return points
