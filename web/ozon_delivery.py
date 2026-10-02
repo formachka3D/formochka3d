@@ -11,19 +11,54 @@ class OzonDeliveryError(RuntimeError):
 class OzonDeliveryClient:
     BASE_URL = "https://api-seller.ozon.ru"
 
-    def __init__(self, token=None):
+    def __init__(self, token=None, client_id=None, api_key=None):
         self.token = token or os.getenv("OZON_DELIVERY_TOKEN", "").strip()
+        self.client_id = (
+            client_id
+            or os.getenv("OZON_CLIENT_ID", "").strip()
+        )
+        self.api_key = (
+            api_key
+            or os.getenv("OZON_API_KEY", "").strip()
+        )
 
     @property
     def configured(self):
-        return bool(self.token)
+        return bool(
+            self.token
+            or (self.client_id and self.api_key)
+        )
+
+    @property
+    def auth_mode(self):
+        if self.client_id and self.api_key:
+            return "seller_api"
+        if self.token:
+            return "oauth_bearer"
+        return "not_configured"
+
+    def _headers(self):
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        if self.client_id and self.api_key:
+            headers["Client-Id"] = self.client_id
+            headers["Api-Key"] = self.api_key
+            return headers
+
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+            return headers
+
+        raise OzonDeliveryError(
+            "Ozon credentials are not configured. "
+            "Set OZON_CLIENT_ID + OZON_API_KEY "
+            "or OZON_DELIVERY_TOKEN."
+        )
 
     def request(self, path, payload):
-        if not self.token:
-            raise OzonDeliveryError(
-                "OZON_DELIVERY_TOKEN is not configured"
-            )
-
         url = self.BASE_URL + path
         body = json.dumps(payload).encode("utf-8")
 
@@ -31,11 +66,7 @@ class OzonDeliveryClient:
             url,
             data=body,
             method="POST",
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
+            headers=self._headers(),
         )
 
         try:
