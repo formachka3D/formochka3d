@@ -232,9 +232,9 @@ onclick="togglePassword('signup-password',this)">Показать</button></span
 <button type='button' class='secondary' onclick='reloadCaptcha()'>↻ Другой код</button>
 <label>Код с картинки<input required id='captcha-answer' autocomplete='off' maxlength='12'></label>
 <input id='website' tabindex='-1' autocomplete='off' aria-hidden='true' style='position:absolute;left:-9999px'>
-<label><input id='privacy' type='checkbox' required> Я ознакомился(-ась) с
-<a href='/privacy/' target='_blank' rel='noopener'>условиями обработки данных тестового сайта</a>
-и соглашаюсь с обработкой данных для создания аккаунта.</label>
+<p style='margin:16px 0 8px'>Перед регистрацией можно ознакомиться с
+<a href='/privacy/' target='_blank' rel='noopener'>Политикой обработки персональных данных</a>.</p>
+<label><input id='privacy' type='checkbox' required> Даю согласие на обработку персональных данных для создания аккаунта.</label>
 <label><input id='signup-newsletter' type='checkbox'> Хочу получать новости и предложения по почте (необязательно)</label>
 <p><button id='submit' type='submit'>Зарегистрироваться</button></p>
 </form><div id='message' role='status'></div></section>""")
