@@ -1,0 +1,12 @@
+# Do not commit uploads, user data or SMTP credentials.
+/data/
+/input/
+/output/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.env
+*.env.*
+__pycache__/
+*.py[cod]
+.pytest_cache/
