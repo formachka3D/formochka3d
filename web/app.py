@@ -413,12 +413,9 @@ PAGE = """
         </a>
 
         <nav class="topnav">
-            <a href="#generator">Создать STL</a>
-            <a href="#instruction">Инструкция</a>
-            <a href="/static/shop.html">Товары и цены</a>
-            <a href="/static/payment.html">Оплата и возврат</a>
-            <a href="/static/offer.html">Оферта</a>
-            <a href="/static/requisites.html">Реквизиты</a>
+            <a href="#generator">Создать свою формочку</a>
+            <a href="/static/shop.html#stl-catalog">Каталог STL</a>
+            <a href="/static/shop.html#product-catalog">Каталог товаров</a>
         </nav>
 
     </div>
